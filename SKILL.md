@@ -92,7 +92,7 @@ Trial/inactive subscriptions are capped at `offset=0`, `limit=20`. Active subscr
 | **Backlinks**           | Find competitor backlinks you don't have yet — the core link gap / prospecting workflow  | `GET /backlinks`                             |
 | **Forum Opportunities** | Reddit/Quora threads where people discuss your niche — engage to boost GEO visibility   | `POST/GET/PATCH/DELETE /forum-opportunities` |
 | **People Also Ask**     | Mine PAA questions from search results for FAQ and content enrichment                   | `GET/PATCH/DELETE /people-also-ask`          |
-| **Topics**              | Create content topics from keyword clusters, trigger AI article generation              | `POST/GET/PATCH/DELETE /topics`              |
+| **Topics**              | Create content topics from keyword clusters, trigger AI article generation              | `POST/GET/PATCH/DELETE /topics`, `POST /topics/:id/generate` |
 | **Articles**            | Retrieve AI-generated articles (full HTML), update metadata, organise by category       | `GET/PATCH/DELETE /articles`                 |
 | **Categories**          | Organise topics and articles into named categories                                      | `POST/GET/PATCH/DELETE /categories`          |
 
@@ -121,9 +121,11 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
     "keywordIds": ["<seed-id>", "<cluster-id-1>", "<cluster-id-2>"]
   }' \
   https://api.rankspot.ai/v1/topics | jq .
-# RankSpot generates an article from the topic automatically
+# Topic is created in "planned" status. Trigger generation:
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/topics/<topic-id>/generate | jq .
 
-# 4. CHECK generation status — poll until status is "generated"
+# 4. Poll until status is "generated" (takes 5–10 minutes)
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   https://api.rankspot.ai/v1/topics/<topic-id> | jq '{status: .data.status, articleId: .data.articleId}'
 
@@ -140,7 +142,7 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "Ahrefs", "domain": "ahrefs.com"}' \
   https://api.rankspot.ai/v1/competitors | jq '.data.id'
-# Wait 10–30 min for initial sync, then proceed.
+# Sync runs every 1–2 weeks. For immediate data contact dan@rankspot.ai.
 
 # 2. LIST competitor keywords you haven't planned content for yet
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
@@ -489,7 +491,7 @@ curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
 
 ### Topics
 
-Topics are content briefs. Create one from a keyword cluster and RankSpot automatically generates an article. Only `planned` topics can be edited — `generating` and `generated` topics are locked.
+Topics are content briefs. Once created, a topic sits in `planned` status until you trigger generation via `POST /topics/:id/generate`. Generation is asynchronous and takes **5–10 minutes** — poll `GET /topics/:id` until `status` changes to `generated`. Only `planned` topics can be edited — `generating` and `generated` topics are locked.
 
 #### Create a Topic
 
@@ -557,6 +559,31 @@ curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
 
 Passing `keywordIds` **replaces** the full set of linked keywords. Returns `400` if the topic is `generating` or `generated`.
 
+#### Generate an Article from a Topic
+
+Triggers AI article generation. The topic must be in `planned` status. Generation is asynchronous and takes **5–10 minutes** — poll `GET /topics/:id` until `status` is `generated`, then fetch the article via `articleId`.
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/topics/<id>/generate | jq .
+```
+
+**Response (200):**
+```json
+{ "success": true }
+```
+
+Then poll for completion:
+
+```bash
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/topics/<id> | jq '{status: .data.status, articleId: .data.articleId}'
+```
+
+**Errors:**
+- `400` — topic is not in `planned` status (already generating or generated)
+- `403` — article generation limit reached for your plan
+
 #### Delete a Topic
 
 ```bash
@@ -570,7 +597,7 @@ Permanent. The generated article (if any) is preserved; its `topicId` link is re
 
 ### Articles
 
-Articles are AI-generated from topics. They cannot be created directly via the API — use Topics to trigger generation. Content and status are managed by RankSpot; only metadata can be updated.
+Articles are AI-generated from topics. They cannot be created directly via the API — use `POST /topics/:id/generate` to trigger generation. Generation takes 5–10 minutes. Once complete the article is accessible here. Content and status are managed by RankSpot; only metadata can be updated via the API.
 
 #### List Articles
 
@@ -712,7 +739,7 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "Competitor A", "domain": "competitor-a.com"}' \
   https://api.rankspot.ai/v1/competitors | jq '.data.id'
-# Wait 10–30 minutes for initial sync.
+# Sync runs every 1–2 weeks. For immediate data contact dan@rankspot.ai.
 
 # Step 2: Pull their highest-authority backlinks — your link gap list
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
@@ -759,7 +786,11 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   }' \
   https://api.rankspot.ai/v1/topics | jq .
 
-# Step 4: Poll until generation completes (status: "generated")
+# Step 4: Trigger generation (topic must be "planned")
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/topics/<topic-id>/generate | jq .
+
+# Step 5: Poll until status is "generated" (takes 5–10 minutes)
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   https://api.rankspot.ai/v1/topics/<topic-id> | jq '{status: .data.status, articleId: .data.articleId}'
 
@@ -870,7 +901,7 @@ Do not hammer the API in a loop. Space sequential requests by at least 1 second.
 ## Tips
 
 - **Start with `type=new` keywords.** These are the unplanned opportunities — keywords in the workspace with no content assigned yet. Always check here first before deciding what to write next.
-- **Competitor sync is async.** After `POST /competitors`, wait 10–30 minutes before expecting keyword and backlink data to appear.
+- **Competitor sync runs every 1–2 weeks.** After `POST /competitors`, data will not appear immediately. If the user needs it right away, direct them to contact **dan@rankspot.ai** for a manual sync.
 - **Sort by `compositeScore` first.** It blends opportunity score with AI relevance — the best single signal for which keywords to prioritise.
 - **Competitor backlinks = your link prospecting list.** Sites linking to competitors have already decided this niche is link-worthy. `type=competitors` is the default for good reason.
 - **Use `/cluster` before creating a topic.** Grouping semantically related keywords into one topic produces better, broader-ranking articles.
