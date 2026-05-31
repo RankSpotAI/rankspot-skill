@@ -559,6 +559,8 @@ curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
 
 Passing `keywordIds` **replaces** the full set of linked keywords. Returns `400` if the topic is `generating` or `generated`.
 
+**Note:** Topic titles must be unique per workspace (case-insensitive). `POST /topics` returns `400` if a topic with the same title already exists.
+
 #### Generate an Article from a Topic
 
 Triggers AI article generation. The topic must be in `planned` status. Generation is asynchronous and takes **5–10 minutes** — poll `GET /topics/:id` until `status` is `generated`, then fetch the article via `articleId`.
