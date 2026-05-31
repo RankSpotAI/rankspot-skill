@@ -2,15 +2,19 @@
 
 Programmatic SEO intelligence for AI agents. Track competitors, score keywords, analyse backlinks, find forum link-building opportunities, mine "People Also Ask" questions, and manage AI-generated content — all through the RankSpot API.
 
-## Quick Start
+## Install
+
+```bash
+npx skills add RankSpotAI/rankspot-api
+```
+
+Then set your API key (get it from **Settings → API Keys** in the [RankSpot dashboard](https://rankspot.ai)):
 
 ```bash
 export RANKSPOT_API_KEY=your_key_here
 ```
 
-No installation required. The skill uses `curl` and `jq`.
-
-Get your API key from **Settings → API Keys** in the [RankSpot dashboard](https://rankspot.ai).
+No other dependencies. The skill uses `curl` and `jq`.
 
 ## Capabilities
 
