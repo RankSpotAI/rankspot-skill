@@ -5,7 +5,7 @@ Programmatic SEO intelligence for AI agents. Track competitors, score keywords, 
 ## Install
 
 ```bash
-npx skills add RankSpotAI/rankspot-skill
+npx skills add RankSpotAI/rankspot-skill --skill rankspot
 ```
 
 Then set your API key (get it from **Settings → API Keys** in the [RankSpot dashboard](https://rankspot.ai)):
