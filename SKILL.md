@@ -1,6 +1,6 @@
 ---
 name: rankspot
-description: RankSpot is an SEO intelligence platform. Use this skill when the user wants to research competitors, discover and score keywords, analyze backlinks, find forum link-building opportunities, mine "People Also Ask" questions, plan content topics, or retrieve AI-generated articles via the RankSpot API.
+description: RankSpot is an SEO intelligence platform. Use this skill when the user wants to research competitors, discover and score keywords, analyze backlinks, find forum link-building opportunities, mine "People Also Ask" questions, plan content topics, retrieve AI-generated articles, or analyse Google Search Console performance data via the RankSpot API.
 homepage: https://rankspot.ai
 metadata: {"clawdbot":{"emoji":"📈","requires":{"env":["RANKSPOT_API_KEY"]}}}
 ---
@@ -10,7 +10,7 @@ metadata: {"clawdbot":{"emoji":"📈","requires":{"env":["RANKSPOT_API_KEY"]}}}
 Before running any commands, explain the following to the user:
 
 **What RankSpot does:**
-RankSpot is an SEO intelligence platform that gives you programmatic access to your workspace data. Through its API you can: track competitor domains (RankSpot auto-discovers their keywords and backlinks on a background sync), manage and score your keyword list with AI-driven signals, analyse backlinks from competitors and your own domain, surface forum threads as link-building opportunities, mine "People Also Ask" questions from search results, plan content topics from keyword clusters, and retrieve AI-generated articles.
+RankSpot is an SEO intelligence platform that gives you programmatic access to your workspace data. Through its API you can: track competitor domains (RankSpot auto-discovers their keywords and backlinks on a background sync), manage and score your keyword list with AI-driven signals, analyse backlinks from competitors and your own domain, surface forum threads as link-building opportunities, mine "People Also Ask" questions from search results, plan content topics from keyword clusters, retrieve AI-generated articles, and pull Google Search Console performance data (clicks, impressions, CTR, average position) for your connected property.
 
 **Setup:**
 Generate an API key from **Settings → API Keys** in the RankSpot dashboard. Each key is scoped to a single workspace.
@@ -95,6 +95,7 @@ Trial/inactive subscriptions are capped at `offset=0`, `limit=20`. Active subscr
 | **Topics**              | Create content topics from keyword clusters, trigger AI article generation              | `POST/GET/PATCH/DELETE /topics`, `POST /topics/:id/generate` |
 | **Articles**            | Retrieve AI-generated articles (full HTML), update metadata, organise by category       | `GET/PATCH/DELETE /articles`                 |
 | **Categories**          | Organise topics and articles into named categories                                      | `POST/GET/PATCH/DELETE /categories`          |
+| **Search Console**      | Google Search Console performance data — clicks, impressions, CTR, avg position. Requires GSC connected from the RankSpot dashboard. | `POST /gsc/performance` |
 
 ---
 
@@ -862,6 +863,180 @@ curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
 
 ---
 
+### Search Console
+
+**Prerequisite:** The user must connect Google Search Console from the RankSpot dashboard: **Integrations → Google Search Console → Connect → select a property**. Without this, all requests return `401`.
+
+#### Get Search Performance Data
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "startDate": "2024-01-01",
+    "endDate": "2024-01-31",
+    "dimensions": ["query"]
+  }' \
+  https://api.rankspot.ai/v1/gsc/performance | jq .
+```
+
+**Request body:**
+
+| Field                  | Required | Description                                                                 |
+|------------------------|----------|-----------------------------------------------------------------------------|
+| `startDate`            | Yes      | Start of date range (`YYYY-MM-DD`). Data is available with ~2–3 day delay. |
+| `endDate`              | Yes      | End of date range (`YYYY-MM-DD`). Maximum range: 16 months.                |
+| `dimensions`           | No       | Array of dimensions to group by. Defaults to `["query"]`. Combine up to 3. |
+| `dimensionFilterGroups`| No       | Filter groups to narrow results (see below).                                |
+| `startRow`             | No       | Zero-based row offset for pagination (default: 0).                          |
+| `rowLimit`             | No       | Max rows to return, 1–25000. Defaults to GSC API default (1000) when omitted. |
+
+**Dimension values:** `query` · `page` · `country` · `device` · `date` · `searchAppearance`
+
+**Response (200):**
+```json
+{
+  "data": {
+    "siteUrl": "https://example.com/",
+    "startDate": "2024-01-01",
+    "endDate": "2024-01-31",
+    "dimensions": ["query"],
+    "rows": [
+      {
+        "keys": ["rankspot seo tool"],
+        "clicks": 120,
+        "impressions": 980,
+        "ctr": 12.24,
+        "position": 3.2
+      }
+    ]
+  }
+}
+```
+
+`ctr` is a percentage (e.g. `12.24` = 12.24%). `position` is rounded to 1 decimal.
+
+**Errors:**
+- `401 Google Search Console is not connected` — user needs to connect from the dashboard
+- `401 No Search Console property selected` — user connected OAuth but hasn't picked a property yet
+- `401 Failed to refresh Google Search Console token` — token was revoked; user must reconnect
+- `502` — Google Search Console API returned an error (message is forwarded)
+
+#### Common Queries
+
+```bash
+# Top search queries — what brings people to your site
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query"], "rowLimit": 50}' \
+  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(-.clicks)[:10]'
+
+# Top landing pages by clicks
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["page"]}' \
+  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(-.clicks)[:10]'
+
+# Performance by date — track trends over time
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["date"]}' \
+  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows[] | {date: .keys[0], clicks, impressions, ctr, position}'
+
+# Query + page combined — see which pages rank for which queries
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query", "page"], "rowLimit": 100}' \
+  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows[] | {query: .keys[0], page: .keys[1], clicks, position}'
+
+# Filter by country — UK traffic only
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "startDate": "2024-01-01",
+    "endDate": "2024-01-31",
+    "dimensions": ["query"],
+    "dimensionFilterGroups": [
+      { "filters": [{ "dimension": "country", "expression": "gbr" }] }
+    ]
+  }' \
+  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(-.clicks)[:20]'
+
+# Queries containing a keyword — brand vs non-brand
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "startDate": "2024-01-01",
+    "endDate": "2024-01-31",
+    "dimensions": ["query"],
+    "dimensionFilterGroups": [
+      { "filters": [{ "dimension": "query", "expression": "rankspot", "operator": "contains" }] }
+    ]
+  }' \
+  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows'
+```
+
+**Filter `operator` values:** `equals` (default) · `notEquals` · `contains` · `notContains` · `includingRegex` · `excludingRegex`
+
+**Country codes** use ISO 3166-1 alpha-3 (e.g. `usa`, `gbr`, `deu`, `fra`, `ind`). **Device values:** `DESKTOP`, `MOBILE`, `TABLET`.
+
+---
+
+## Workflow: Search Performance Analysis
+
+Use this when the user asks to:
+- "What are my top search queries?"
+- "Which pages get the most clicks from Google?"
+- "How has my search traffic changed over the last month?"
+- "Show me my click-through rate and average position"
+- "What queries is this page ranking for?"
+- "Compare my mobile vs desktop search performance"
+
+**Requires:** Google Search Console connected from **Integrations → Google Search Console** in the RankSpot dashboard.
+
+```bash
+# Step 1: Check overall performance for a date range
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["date"]}' \
+  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows[] | {date: .keys[0], clicks, impressions, ctr, position}'
+
+# Step 2: Find top queries driving traffic
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query"], "rowLimit": 25}' \
+  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(-.clicks)[:10]'
+
+# Step 3: Find queries with high impressions but low CTR — quick-win opportunities
+# (ranking well but not getting clicked — title/meta description may need improving)
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query"], "rowLimit": 500}' \
+  https://api.rankspot.ai/v1/gsc/performance | \
+  jq '[.data.rows[] | select(.impressions > 100 and .ctr < 3 and .position < 10)] | sort_by(-.impressions)[:10]'
+
+# Step 4: Identify which pages have the best/worst average position
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["page"], "rowLimit": 100}' \
+  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(.position)[:10]'
+
+# Step 5: Drill into a specific page to see what queries it ranks for
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "startDate": "2024-01-01",
+    "endDate": "2024-01-31",
+    "dimensions": ["query"],
+    "dimensionFilterGroups": [
+      { "filters": [{ "dimension": "page", "expression": "https://example.com/blog/seo-guide" }] }
+    ]
+  }' \
+  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(-.clicks)'
+```
+
+---
+
 ## Error Handling
 
 All error responses return JSON.
@@ -913,3 +1088,7 @@ Do not hammer the API in a loop. Space sequential requests by at least 1 second.
 - **Archive, don't delete keywords.** Archiving preserves the data; a competitor's keywords cannot be recovered once the competitor is deleted.
 - **`contentHtml` is only in single-article responses.** The list endpoint omits it to keep payloads small — always fetch by ID to get the full content.
 - **Trial subscriptions are capped.** `offset=0` and `limit≤20` apply to non-active subscriptions. Upgrade at https://rankspot.ai if you hit these limits.
+- **GSC data has a 2–3 day delay.** `endDate` of yesterday will often return no data — use a date at least 3 days in the past.
+- **GSC `dimensions` defaults to `["query"]`.** Omit it to get query-level breakdown, or pass `["date"]` for trend analysis or `["page"]` for page-level performance.
+- **High impressions + low CTR + position < 10 = quick wins.** These queries are visible but not getting clicked — improving the page title or meta description can yield immediate traffic gains without changing rankings.
+- **Country codes are alpha-3.** `usa`, `gbr`, `deu`, `fra`, `ind` — not the more common alpha-2 (`us`, `gb`, etc.).
