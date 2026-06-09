@@ -1072,6 +1072,7 @@ Do not hammer the API in a loop. Space sequential requests by at least 1 second.
 | Endpoint group                                    | Limit             |
 |---------------------------------------------------|-------------------|
 | All endpoints (global)                            | 5,000 req / 60s per API key |
+| `POST /gsc/performance`                           | 100 req / 60s per API key |
 
 ---
 
