@@ -89,7 +89,7 @@ Trial/inactive subscriptions are capped at `offset=0`, `limit=20`. Active subscr
 |-------------------------|------------------------------------------------------------------------------------------|----------------------------------------------|
 | **Competitors**         | Track competitor domains; RankSpot auto-discovers their keywords + backlinks             | `POST/GET/DELETE /competitors`               |
 | **Keywords**            | Discover unplanned keywords (high-score opportunities with no content yet), add, cluster | `POST/GET /keywords`, `GET /:id/cluster`     |
-| **Backlinks**           | Find competitor backlinks you don't have yet — the core link gap / prospecting workflow  | `GET /backlinks`                             |
+| **Backlinks**           | Find competitor backlinks you don't have yet — the core link gap / prospecting workflow  | `GET/PATCH/DELETE /backlinks`                |
 | **Forum Opportunities** | Reddit/Quora threads where people discuss your niche — engage to boost GEO visibility   | `POST/GET/PATCH/DELETE /forum-opportunities` |
 | **People Also Ask**     | Mine PAA questions from search results for FAQ and content enrichment                   | `GET/PATCH/DELETE /people-also-ask`          |
 | **Topics**              | Create content topics from keyword clusters, trigger AI article generation              | `POST/GET/PATCH/DELETE /topics`, `POST /topics/:id/generate` |
@@ -352,15 +352,21 @@ curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
 
 **Query parameters:**
 
-| Parameter    | Values                                          | Default          |
-|--------------|-------------------------------------------------|------------------|
-| `type`       | `competitors`, `mine`, `archived`               | `competitors`    |
+| Parameter    | Values                                                    | Default          |
+|--------------|-----------------------------------------------------------|------------------|
+| `type`       | `competitors`, `processed`, `mine`, `archived`            | `competitors`    |
 | `competitorId` | UUID — omit to see backlinks across all competitors; pass an ID to scope to one. Only applies when `type=competitors`. | — |
-| `domainFrom` | Substring filter on the linking domain          | —                |
-| `sortBy`     | `domainFromRank`, `firstSeen`, `backlinkSpamScore` | `domainFromRank` |
-| `sortOrder`  | `asc`, `desc`                                   | `desc`           |
-| `limit`      | 1–100                                           | 20               |
-| `offset`     | ≥0                                              | 0                |
+| `domainFrom` | Substring filter on the linking domain                    | —                |
+| `sortBy`     | `domainFromRank`, `firstSeen`, `backlinkSpamScore`        | `domainFromRank` |
+| `sortOrder`  | `asc`, `desc`                                             | `desc`           |
+| `limit`      | 1–100                                                     | 20               |
+| `offset`     | ≥0                                                        | 0                |
+
+**Type meanings:**
+- `competitors` — unprocessed competitor backlinks (status=new) — your active link-building prospects
+- `processed` — competitor backlinks you've already acted on
+- `mine` — your own backlinks (all statuses)
+- `archived` — soft-deleted backlinks
 
 **Backlink fields:**
 
@@ -379,6 +385,29 @@ curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
 | `firstSeen`        | When the backlink was first detected                         |
 | `attributes`       | `rel` attribute values, e.g. `["noopener", "noreferrer"]`   |
 | `competitorId`     | Which competitor this belongs to (null = your own backlink)  |
+| `status`           | `new` (not yet acted on) or `processed` (already acted on)  |
+
+#### Update Status (Mark as Processed)
+
+Mark a competitor backlink as processed once you've acted on it (submitted the site, sent outreach, etc.). Processed backlinks move out of `type=competitors` into `type=processed` so your prospect list stays clean.
+
+```bash
+# Mark as processed
+curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "processed"}' \
+  https://api.rankspot.ai/v1/backlinks/<id>
+
+# Mark back to new (if you want to re-engage)
+curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "new"}' \
+  https://api.rankspot.ai/v1/backlinks/<id>
+```
+
+Returns `204 No Content`.
+
+**Note:** When a competitor backlink is verified to be linking to your domain too, RankSpot automatically moves it to `type=mine` and resets its status to `new`.
 
 #### Archive / Unarchive a Backlink
 
@@ -757,6 +786,17 @@ curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   "https://api.rankspot.ai/v1/backlinks?type=mine&sortBy=domainFromRank&sortOrder=desc" | jq \
   '.data.items[] | {domainFrom, domainFromRank, dofollow}'
+
+# Step 5: After contacting or submitting to a site, mark the backlink as processed
+curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "processed"}' \
+  https://api.rankspot.ai/v1/backlinks/<id>
+
+# Step 6: Review what you've already acted on
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/backlinks?type=processed&sortBy=domainFromRank&sortOrder=desc" | jq \
+  '.data.items[] | {domainFrom, domainFromRank, status}'
 ```
 
 ---
@@ -1081,7 +1121,8 @@ Do not hammer the API in a loop. Space sequential requests by at least 1 second.
 - **Start with `type=new` keywords.** These are the unplanned opportunities — keywords in the workspace with no content assigned yet. Always check here first before deciding what to write next.
 - **Competitor sync runs every 1–2 weeks.** After `POST /competitors`, data will not appear immediately. If the user needs it right away, direct them to contact **dan@rankspot.ai** for a manual sync.
 - **Sort by `compositeScore` first.** It blends opportunity score with AI relevance — the best single signal for which keywords to prioritise.
-- **Competitor backlinks = your link prospecting list.** Sites linking to competitors have already decided this niche is link-worthy. `type=competitors` is the default for good reason.
+- **Competitor backlinks = your link prospecting list.** Sites linking to competitors have already decided this niche is link-worthy. `type=competitors` is the default for good reason — it only shows unprocessed prospects so the list stays actionable.
+- **Mark backlinks as processed to track outreach.** After contacting a site or submitting a listing, `PATCH /backlinks/<id>/update` with `{"status": "processed"}` moves it out of your prospect list into `type=processed`. Once RankSpot verifies the link points to your domain, it automatically moves to `type=mine`.
 - **Use `/cluster` before creating a topic.** Grouping semantically related keywords into one topic produces better, broader-ranking articles.
 - **Forum threads are for GEO, not just links.** Helpful participation in Reddit/Quora threads that match your customer's problems puts your brand into the conversations AI models learn from.
 - **PAA questions = free FAQ content.** Add them as structured FAQ sections in articles to capture featured snippet positions.
