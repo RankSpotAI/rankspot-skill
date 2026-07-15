@@ -1,6 +1,6 @@
 ---
 name: rankspot
-description: RankSpot is an SEO intelligence platform. Use this skill when the user wants to research competitors, discover and score keywords, analyze backlinks, find forum link-building opportunities, mine "People Also Ask" questions, plan content topics, retrieve AI-generated articles, or analyse Google Search Console performance data via the RankSpot API.
+description: RankSpot is an SEO intelligence platform. Use this skill when the user wants to research competitors, discover and score keywords, analyze backlinks, find forum link-building opportunities, mine "People Also Ask" questions, plan content topics, retrieve AI-generated articles, analyse Google Search Console performance data, check whether a page is indexed, or submit pages to Google for indexing via the RankSpot API.
 homepage: https://rankspot.ai
 metadata: {"clawdbot":{"emoji":"📈","requires":{"env":["RANKSPOT_API_KEY"]}}}
 ---
@@ -10,7 +10,7 @@ metadata: {"clawdbot":{"emoji":"📈","requires":{"env":["RANKSPOT_API_KEY"]}}}
 Before running any commands, explain the following to the user:
 
 **What RankSpot does:**
-RankSpot is an SEO intelligence platform that gives you programmatic access to your workspace data. Through its API you can: track competitor domains (RankSpot auto-discovers their keywords and backlinks on a background sync), manage and score your keyword list with AI-driven signals, analyse backlinks from competitors and your own domain, surface forum threads as link-building opportunities, mine "People Also Ask" questions from search results, plan content topics from keyword clusters, retrieve AI-generated articles, and pull Google Search Console performance data (clicks, impressions, CTR, average position) for your connected property.
+RankSpot is an SEO intelligence platform that gives you programmatic access to your workspace data. Through its API you can: track competitor domains (RankSpot auto-discovers their keywords and backlinks on a background sync), manage and score your keyword list with AI-driven signals, analyse backlinks from competitors and your own domain, surface forum threads as link-building opportunities, mine "People Also Ask" questions from search results, plan content topics from keyword clusters, retrieve AI-generated articles, pull Google Search Console performance data (clicks, impressions, CTR, average position) for your connected property, check whether a page is indexed, and submit pages to Google for indexing.
 
 **Setup:**
 Generate an API key from **Settings → API Keys** in the RankSpot dashboard. Each key is scoped to a single workspace.
@@ -95,7 +95,7 @@ Trial/inactive subscriptions are capped at `offset=0`, `limit=20`. Active subscr
 | **Topics**              | Create content topics from keyword clusters, trigger AI article generation              | `POST/GET/PATCH/DELETE /topics`, `POST /topics/:id/generate` |
 | **Articles**            | Retrieve AI-generated articles (full HTML), update metadata, organise by category       | `GET/PATCH/DELETE /articles`                 |
 | **Categories**          | Organise topics and articles into named categories                                      | `POST/GET/PATCH/DELETE /categories`          |
-| **Search Console**      | Google Search Console performance data — clicks, impressions, CTR, avg position. Requires GSC connected from the RankSpot dashboard. | `POST /gsc/performance` |
+| **Search Console**      | Google Search Console performance data (clicks, impressions, CTR, avg position), check whether a page is indexed, and submit pages for indexing. Requires GSC connected from the RankSpot dashboard. | `POST /gsc/performance`, `POST /gsc/inspect`, `POST /gsc/index` |
 
 ---
 
@@ -936,21 +936,19 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
 **Response (200):**
 ```json
 {
-  "data": {
-    "siteUrl": "https://example.com/",
-    "startDate": "2024-01-01",
-    "endDate": "2024-01-31",
-    "dimensions": ["query"],
-    "rows": [
-      {
-        "keys": ["rankspot seo tool"],
-        "clicks": 120,
-        "impressions": 980,
-        "ctr": 12.24,
-        "position": 3.2
-      }
-    ]
-  }
+  "siteUrl": "https://example.com/",
+  "startDate": "2024-01-01",
+  "endDate": "2024-01-31",
+  "dimensions": ["query"],
+  "rows": [
+    {
+      "keys": ["rankspot seo tool"],
+      "clicks": 120,
+      "impressions": 980,
+      "ctr": 12.24,
+      "position": 3.2
+    }
+  ]
 }
 ```
 
@@ -962,6 +960,106 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
 - `401 Failed to refresh Google Search Console token` — token was revoked; user must reconnect
 - `502` — Google Search Console API returned an error (message is forwarded)
 
+#### Check Whether a Page Is Indexed
+
+Inspects a single URL with the Google **URL Inspection API** and reports its index status. Works with the existing GSC connection — no reconnect needed.
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/blog/my-post"}' \
+  https://api.rankspot.ai/v1/gsc/inspect | jq .
+```
+
+**Request body:**
+
+| Field          | Required | Description                                                                 |
+|----------------|----------|-----------------------------------------------------------------------------|
+| `url`          | Yes      | Fully-qualified URL to inspect. Must belong to the connected property.       |
+| `languageCode` | No       | BCP-47 language code for result messages (default `en-US`).                  |
+
+**Response (200):** the raw `inspectionResult` from Google.
+```json
+{
+  "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=sc-domain:example.com&id=...",
+  "indexStatusResult": {
+    "verdict": "PASS",
+    "coverageState": "Submitted and indexed",
+    "robotsTxtState": "ALLOWED",
+    "indexingState": "INDEXING_ALLOWED",
+    "lastCrawlTime": "2026-06-21T15:58:20Z",
+    "pageFetchState": "SUCCESSFUL",
+    "googleCanonical": "https://www.example.com/blog",
+    "userCanonical": "https://www.example.com/blog",
+    "referringUrls": ["https://www.example.com/blog/"],
+    "crawledAs": "MOBILE"
+  },
+  "mobileUsabilityResult": { "verdict": "VERDICT_UNSPECIFIED" }
+}
+```
+
+**Reading the result:** the page is indexed when `indexStatusResult.verdict` is `PASS`. When it is not, `indexStatusResult.coverageState` explains why (e.g. `"Crawled - currently not indexed"`, `"Discovered - currently not indexed"`, `"URL is unknown to Google"`).
+
+```bash
+# Just the bottom line — is this URL indexed?
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/blog/my-post"}' \
+  https://api.rankspot.ai/v1/gsc/inspect \
+  | jq '{indexed: (.indexStatusResult.verdict == "PASS"), state: .indexStatusResult.coverageState, lastCrawl: .indexStatusResult.lastCrawlTime}'
+```
+
+**Quota:** Google limits the URL Inspection API to ~2,000 queries/day and 600 queries/minute per property.
+
+#### Submit a Page for Indexing
+
+Notifies Google via the **Indexing API** that a URL was added/updated or removed.
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/blog/my-post", "type": "URL_UPDATED"}' \
+  https://api.rankspot.ai/v1/gsc/index | jq .
+```
+
+**Request body:**
+
+| Field  | Required | Description                                                                          |
+|--------|----------|--------------------------------------------------------------------------------------|
+| `url`  | Yes      | Fully-qualified URL to notify Google about. Must belong to a property you **own**.    |
+| `type` | No       | `URL_UPDATED` (default) to (re)index, or `URL_DELETED` to request removal.            |
+
+**Response (201):** the raw `urlNotificationMetadata` from Google. On a first submission this may be just `{ "url": "..." }`; `latestUpdate`/`latestRemove` only appear once Google has processed prior notifications for the URL.
+```json
+{
+  "url": "https://example.com/blog/my-post",
+  "latestUpdate": {
+    "url": "https://example.com/blog/my-post",
+    "type": "URL_UPDATED",
+    "notifyTime": "2026-06-21T12:00:00Z"
+  }
+}
+```
+
+**Important caveats:**
+- Requires a GSC connection with the **indexing** OAuth scope, and the connected Google account must be a **verified owner** of the property. If the connection predates indexing support, the user must reconnect from **Integrations → Google Search Console** to grant the scope (returns `401` otherwise).
+- A `201` means Google *received* the notification — it does **not** guarantee or immediately confirm indexing. Use `POST /gsc/inspect` afterwards to check status.
+- Google's Indexing API has a default quota of ~200 URLs/day per project.
+
+```bash
+# Submit a page, then check its status
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/blog/my-post"}' \
+  https://api.rankspot.ai/v1/gsc/index | jq .
+
+# Give Google a moment, then inspect (re-run until verdict is PASS)
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/blog/my-post"}' \
+  https://api.rankspot.ai/v1/gsc/inspect | jq '.indexStatusResult.coverageState'
+```
+
 #### Common Queries
 
 ```bash
@@ -969,25 +1067,25 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query"], "rowLimit": 50}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(-.clicks)[:10]'
+  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)[:10]'
 
 # Top landing pages by clicks
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["page"]}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(-.clicks)[:10]'
+  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)[:10]'
 
 # Performance by date — track trends over time
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["date"]}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows[] | {date: .keys[0], clicks, impressions, ctr, position}'
+  https://api.rankspot.ai/v1/gsc/performance | jq '.rows[] | {date: .keys[0], clicks, impressions, ctr, position}'
 
 # Query + page combined — see which pages rank for which queries
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query", "page"], "rowLimit": 100}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows[] | {query: .keys[0], page: .keys[1], clicks, position}'
+  https://api.rankspot.ai/v1/gsc/performance | jq '.rows[] | {query: .keys[0], page: .keys[1], clicks, position}'
 
 # Filter by country — UK traffic only
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
@@ -1000,7 +1098,7 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
       { "filters": [{ "dimension": "country", "expression": "gbr" }] }
     ]
   }' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(-.clicks)[:20]'
+  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)[:20]'
 
 # Queries containing a keyword — brand vs non-brand
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
@@ -1013,7 +1111,7 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
       { "filters": [{ "dimension": "query", "expression": "rankspot", "operator": "contains" }] }
     ]
   }' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows'
+  https://api.rankspot.ai/v1/gsc/performance | jq '.rows'
 ```
 
 **Filter `operator` values:** `equals` (default) · `notEquals` · `contains` · `notContains` · `includingRegex` · `excludingRegex`
@@ -1039,13 +1137,13 @@ Use this when the user asks to:
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["date"]}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows[] | {date: .keys[0], clicks, impressions, ctr, position}'
+  https://api.rankspot.ai/v1/gsc/performance | jq '.rows[] | {date: .keys[0], clicks, impressions, ctr, position}'
 
 # Step 2: Find top queries driving traffic
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query"], "rowLimit": 25}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(-.clicks)[:10]'
+  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)[:10]'
 
 # Step 3: Find queries with high impressions but low CTR — quick-win opportunities
 # (ranking well but not getting clicked — title/meta description may need improving)
@@ -1053,13 +1151,13 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query"], "rowLimit": 500}' \
   https://api.rankspot.ai/v1/gsc/performance | \
-  jq '[.data.rows[] | select(.impressions > 100 and .ctr < 3 and .position < 10)] | sort_by(-.impressions)[:10]'
+  jq '[.rows[] | select(.impressions > 100 and .ctr < 3 and .position < 10)] | sort_by(-.impressions)[:10]'
 
 # Step 4: Identify which pages have the best/worst average position
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["page"], "rowLimit": 100}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(.position)[:10]'
+  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(.position)[:10]'
 
 # Step 5: Drill into a specific page to see what queries it ranks for
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
@@ -1072,7 +1170,7 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
       { "filters": [{ "dimension": "page", "expression": "https://example.com/blog/seo-guide" }] }
     ]
   }' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.data.rows | sort_by(-.clicks)'
+  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)'
 ```
 
 ---
@@ -1112,7 +1210,7 @@ Do not hammer the API in a loop. Space sequential requests by at least 1 second.
 | Endpoint group                                    | Limit             |
 |---------------------------------------------------|-------------------|
 | All endpoints (global)                            | 5,000 req / 60s per API key |
-| `POST /gsc/performance`                           | 100 req / 60s per API key |
+| `POST /gsc/performance`, `/gsc/inspect`, `/gsc/index` | 100 req / 60s per API key |
 
 ---
 
@@ -1134,3 +1232,5 @@ Do not hammer the API in a loop. Space sequential requests by at least 1 second.
 - **GSC `dimensions` defaults to `["query"]`.** Omit it to get query-level breakdown, or pass `["date"]` for trend analysis or `["page"]` for page-level performance.
 - **High impressions + low CTR + position < 10 = quick wins.** These queries are visible but not getting clicked — improving the page title or meta description can yield immediate traffic gains without changing rankings.
 - **Country codes are alpha-3.** `usa`, `gbr`, `deu`, `fra`, `ind` — not the more common alpha-2 (`us`, `gb`, etc.).
+- **"Is my page indexed?" = `POST /gsc/inspect`.** Read `indexStatusResult.verdict` (`PASS` = indexed) and fall back to `coverageState` for the reason when it isn't.
+- **Submitting for indexing is a request, not a guarantee.** `POST /gsc/index` returns `201` once Google receives the notification; confirm with `/gsc/inspect` afterwards rather than assuming the page is live. It needs the **indexing** OAuth scope and a **verified-owner** connection — a `401` here usually means the user must reconnect GSC from the dashboard.
