@@ -1,6 +1,6 @@
 ---
 name: rankspot
-description: RankSpot is an SEO intelligence platform. Use this skill when the user wants to research competitors, discover and score keywords, analyze backlinks, find forum link-building opportunities, mine "People Also Ask" questions, plan content topics, retrieve AI-generated articles, analyse Google Search Console performance data, check whether a page is indexed, or submit pages to Google for indexing via the RankSpot API.
+description: RankSpot is an SEO and AI visibility platform. Use this skill when the user wants to see how AI answer engines describe their brand, track prompts and read the answers ChatGPT, Perplexity and Google gave, work through cited pages and fanout queries, research competitors, discover and score keywords, analyse backlinks, find forum opportunities, mine "People Also Ask" questions, plan and track SEO work as actions, generate and manage articles, run live Google searches or page fetches, or analyse Google Search Console performance and indexing via the RankSpot API.
 homepage: https://rankspot.ai
 metadata: {"clawdbot":{"emoji":"📈","requires":{"env":["RANKSPOT_API_KEY"]}}}
 ---
@@ -10,10 +10,10 @@ metadata: {"clawdbot":{"emoji":"📈","requires":{"env":["RANKSPOT_API_KEY"]}}}
 Before running any commands, explain the following to the user:
 
 **What RankSpot does:**
-RankSpot is an SEO intelligence platform that gives you programmatic access to your workspace data. Through its API you can: track competitor domains (RankSpot auto-discovers their keywords and backlinks on a background sync), manage and score your keyword list with AI-driven signals, analyse backlinks from competitors and your own domain, surface forum threads as link-building opportunities, mine "People Also Ask" questions from search results, plan content topics from keyword clusters, retrieve AI-generated articles, pull Google Search Console performance data (clicks, impressions, CTR, average position) for your connected property, check whether a page is indexed, and submit pages to Google for indexing.
+RankSpot is an SEO and AI visibility platform that gives you programmatic access to your workspace. Through its API you can see how AI answer engines talk about your brand (tracked prompts, captured answers, cited pages, the searches engines ran), track competitors and their keywords and backlinks, score your keyword list, surface forum threads worth joining, mine "People Also Ask" questions, plan every piece of work as an action, generate and manage articles, run live Google searches and page fetches, and pull Google Search Console performance and index status.
 
 **Setup:**
-Generate an API key from **Settings → API Keys** in the RankSpot dashboard. Each key is scoped to a single workspace.
+Generate an API key from **Settings, then API Keys** in the RankSpot dashboard. Each key is scoped to a single workspace.
 
 ```bash
 export RANKSPOT_API_KEY=your_api_key_here
@@ -32,38 +32,38 @@ Sign up or log in at **https://rankspot.ai**. Your API key is in Settings after 
 export RANKSPOT_API_KEY=your_api_key_here
 ```
 
-| Property        | Value                                                                                                         |
-|-----------------|---------------------------------------------------------------------------------------------------------------|
-| **name**        | rankspot                                                                                                      |
-| **description** | SEO intelligence: competitor tracking, keyword scoring, backlink analysis, forum opportunities, content topics, AI-generated articles |
-| **allowed-tools** | Bash(curl:*), Bash(jq:*)                                                                                    |
+| Property          | Value                                                                                                                     |
+|-------------------|---------------------------------------------------------------------------------------------------------------------------|
+| **name**          | rankspot                                                                                                                  |
+| **description**   | AI visibility, competitor tracking, keyword scoring, backlink analysis, forum opportunities, actions, AI-generated articles |
+| **allowed-tools** | Bash(curl:*), Bash(jq:*)                                                                                                  |
 
 ---
 
-## API Base URL
+## API Basics
 
-All endpoints use: `https://api.rankspot.ai/v1`
+Base URL: `https://api.rankspot.ai/v1`
 
-All requests require: `Authorization: Bearer $RANKSPOT_API_KEY`
+Every request needs `Authorization: Bearer $RANKSPOT_API_KEY`.
 
-Swagger / interactive docs: `https://api.rankspot.ai/docs`
+Interactive docs: `https://api.rankspot.ai/docs`
 
----
+There is also an MCP server at `https://api.rankspot.ai/mcp` that exposes the same operations as tools. Use it instead of curl when the host supports MCP. Its delete tools require an explicit `confirm: true`, so check with the user before calling one.
 
-## Validate Your API Key
+`GET https://api.rankspot.ai/health` needs no auth and is outside the `/v1` prefix. Use it to tell "the API is down" apart from "my key is wrong".
+
+### Validate your API key
 
 ```bash
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/categories | jq .
+  https://api.rankspot.ai/v1/workspace | jq .
 ```
 
-If you get `{"message":"Missing API key"}` or `{"message":"Invalid API key"}`, the key is wrong. Ask the user to check **Settings → API Keys** in the RankSpot dashboard.
+`Missing API key` or `Invalid API key` means the key is wrong. Ask the user to check **Settings, then API Keys**.
 
----
+### Response shapes
 
-## Pagination
-
-All list endpoints return:
+**List endpoints** wrap results in a `data` envelope:
 
 ```json
 {
@@ -72,1040 +72,974 @@ All list endpoints return:
     "offset": 0,
     "limit": 20,
     "count": 20,
-    "items": [...]
+    "items": []
   }
 }
 ```
 
+**Everything else returns the object directly, with no envelope.** A single article, a created action, a keyword cluster, a Search Console report and a research result all come back at the top level. So use `jq '.data.items[]'` for lists and `jq '.title'` for a single resource.
+
+### Pagination
+
 Query parameters: `offset` (default 0) and `limit` (default 20, max 100).
 
-Trial/inactive subscriptions are capped at `offset=0`, `limit=20`. Active subscriptions can paginate freely up to `limit=100`.
+Trial and inactive subscriptions are capped at `offset=0` and `limit<=20`. Active subscriptions paginate freely.
+
+### Dates
+
+AI visibility and Search Console take calendar days as `YYYY-MM-DD` in UTC. Full timestamps are rejected. If you hold a JavaScript `Date`, send `.toISOString().slice(0, 10)`.
 
 ---
 
 ## What You Get
 
-| Capability              | Description                                                                              | Endpoints                                    |
-|-------------------------|------------------------------------------------------------------------------------------|----------------------------------------------|
-| **Competitors**         | Track competitor domains; RankSpot auto-discovers their keywords + backlinks             | `POST/GET/DELETE /competitors`               |
-| **Keywords**            | Discover unplanned keywords (high-score opportunities with no content yet), add, cluster | `POST/GET /keywords`, `GET /:id/cluster`     |
-| **Backlinks**           | Find competitor backlinks you don't have yet — the core link gap / prospecting workflow  | `GET/PATCH/DELETE /backlinks`                |
-| **Forum Opportunities** | Reddit/Quora threads where people discuss your niche — engage to boost GEO visibility   | `POST/GET/PATCH/DELETE /forum-opportunities` |
-| **People Also Ask**     | Mine PAA questions from search results for FAQ and content enrichment                   | `GET/PATCH/DELETE /people-also-ask`          |
-| **Topics**              | Create content topics from keyword clusters, trigger AI article generation              | `POST/GET/PATCH/DELETE /topics`, `POST /topics/:id/generate` |
-| **Articles**            | Retrieve AI-generated articles (full HTML), update metadata, organise by category       | `GET/PATCH/DELETE /articles`                 |
-| **Categories**          | Organise topics and articles into named categories                                      | `POST/GET/PATCH/DELETE /categories`          |
-| **Search Console**      | Google Search Console performance data (clicks, impressions, CTR, avg position), check whether a page is indexed, and submit pages for indexing. Requires GSC connected from the RankSpot dashboard. | `POST /gsc/performance`, `POST /gsc/inspect`, `POST /gsc/index` |
+| Capability              | What it is                                                                                              | Endpoints                                                                 |
+|-------------------------|---------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
+| **Workspace**           | Brand, domain, what the business does and who it sells to. Read this first.                              | `GET /workspace`                                                          |
+| **AI Visibility**       | Tracked prompts, captured answers, cited pages, fanout queries, and a scored summary                     | `/ai-visibility/prompts`, `/responses`, `/citations`, `/fanouts`, `/summary` |
+| **Actions**             | Every piece of planned work, typed. Only `write_article` turns into an article.                          | `POST/GET/PATCH/DELETE /actions`, `POST /actions/:id/generate`             |
+| **Articles**            | AI-generated articles with full HTML, publish dates and index status                                     | `GET/PATCH/DELETE /articles`                                              |
+| **Keywords**            | Scored keyword list with semantic clustering                                                             | `POST/GET /keywords`, `GET /keywords/:id/cluster`                          |
+| **Backlinks**           | Competitor backlinks you do not have yet, plus your own link profile                                     | `GET/PATCH/DELETE /backlinks`                                             |
+| **Competitors**         | Brands you track, plus brands RankSpot discovered in AI answers                                          | `POST/GET/DELETE /competitors`                                            |
+| **Forum Opportunities** | Reddit and Quora threads worth joining for AI visibility                                                 | `POST/GET/PATCH/DELETE /forum-opportunities`                              |
+| **People Also Ask**     | PAA questions mined from search results for your keywords                                                | `GET/PATCH/DELETE /people-also-ask`                                       |
+| **Categories**          | Group actions and articles                                                                               | `POST/GET/PATCH/DELETE /categories`                                       |
+| **Research**            | Live Google search and page fetch. Costs credits per call.                                               | `POST /research/google`, `POST /research/fetch`                           |
+| **Search Console**      | Clicks, impressions, CTR, position, index status, indexing requests                                      | `POST /gsc/performance`, `/gsc/inspect`, `/gsc/index`                     |
 
 ---
 
-## Core Workflow — Discover Untapped Keywords → Plan Content
+## Start Here: Read the Workspace
 
-The most common starting point: find keywords already in your workspace that have no content planned for them yet, pick the best ones, and turn them into articles.
+A keyword, a cited page or a competitor backlink only means something in the context of a particular business. Read the workspace before deciding what work is worth doing.
 
 ```bash
-# 1. LIST unplanned keywords — high compositeScore, no topic assigned yet
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/workspace | jq .
+```
+
+**Response (200):**
+```json
+{
+  "id": "clx...",
+  "name": "Screen Studio",
+  "brandName": "Screen Studio",
+  "domain": "https://screen.studio/",
+  "businessDescription": "A macOS app that records your screen and polishes the footage automatically.",
+  "targetAudience": "Indie developers, designers and founders who publish demo videos.",
+  "benefits": "Automatic zooms, no editing skills needed, exports in 4K.",
+  "toneOfVoice": "Direct and practical, no marketing filler.",
+  "industry": "Software",
+  "location": "US",
+  "language": "en"
+}
+```
+
+All fields are read-only and any of them can be null. They are edited in the dashboard because they shape article generation and the AI visibility analysis.
+
+`domain` is stored as the user typed it, so it may be a bare hostname or a full URL. Everywhere else in the API a domain is a bare hostname, so strip the scheme and trailing slash before comparing.
+
+---
+
+## Core Workflow: AI Visibility
+
+The question this answers: when someone asks ChatGPT or Perplexity what your product does, do you show up, and if not, what do you do about it?
+
+```bash
+# 1. Score the period. Both dates are required.
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | jq .
+
+# 2. See which pages the engines cited. These are pages you want to be on.
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/citations?type=new&limit=50" | jq \
+  '.data.items[] | {id, url, domain, citations, isOwnDomain}'
+
+# 3. See what the engines actually searched for while answering. Content gaps in their own words.
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/fanouts?type=new&limit=50" | jq \
+  '.data.items[] | {id, query, searches}'
+
+# 4. Pull the full cluster for a gap worth covering, so one article answers every phrasing.
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/ai-visibility/fanouts/<fanout-id>/cluster | jq .
+
+# 5. Turn it into work. A get_cited action for a page, a write_article action for a gap.
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "get_cited",
+    "title": "Get listed in Zapier best screen recorders roundup",
+    "shortDescription": "Cited in 6 ChatGPT answers, and you are in none of them.",
+    "citationId": "<citation-id>"
+  }' \
+  https://api.rankspot.ai/v1/actions | jq .
+```
+
+Prompts are run by RankSpot on a daily schedule. Adding a prompt does not produce an answer immediately, it produces one on the next run.
+
+---
+
+## Core Workflow: Keywords to Article
+
+```bash
+# 1. The worklist: keywords with no article planned and none written.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   "https://api.rankspot.ai/v1/keywords?type=new&sortBy=compositeScore&sortOrder=desc&limit=50" | jq \
   '.data.items[] | {id, keyword, compositeScore, searchVolume, competitionIndex}'
 
-# 2. GET semantically related keywords for your best seed keyword
+# 2. Get the semantic cluster for your best seed keyword. Returns a bare array.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/keywords/<seed-id>/cluster | jq '.data[]'
+  https://api.rankspot.ai/v1/keywords/<seed-id>/cluster | jq .
 
-# 3. CREATE a content topic from the seed + its cluster
+# 3. Plan the work as a write_article action.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
+    "type": "write_article",
     "title": "How to Do Keyword Research in 2026",
-    "description": "A step-by-step guide targeting beginners.",
+    "description": "A step-by-step guide for beginners targeting informational intent.",
     "keywordIds": ["<seed-id>", "<cluster-id-1>", "<cluster-id-2>"]
   }' \
-  https://api.rankspot.ai/v1/topics | jq .
-# Topic is created in "planned" status. Trigger generation:
+  https://api.rankspot.ai/v1/actions | jq '{id, type, status}'
+
+# 4. Trigger generation. The action must be write_article with status new.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/topics/<topic-id>/generate | jq .
+  https://api.rankspot.ai/v1/actions/<action-id>/generate | jq .
 
-# 4. Poll until status is "generated" (takes 5–10 minutes)
+# 5. Poll until the action reports processed, then read articleId off it.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/topics/<topic-id> | jq '{status: .data.status, articleId: .data.articleId}'
+  https://api.rankspot.ai/v1/actions/<action-id> | jq '{status, articleId}'
 
-# 5. FETCH the generated article with full HTML
+# 6. Fetch the article with full HTML.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/articles/<article-id> | jq '{title: .data.title, contentHtml: .data.contentHtml}'
+  https://api.rankspot.ai/v1/articles/<article-id> | jq '{title, slug, contentHtml}'
 ```
 
-## Core Workflow — Competitor Intelligence
+Generation is asynchronous and takes roughly 5 to 10 minutes. Space your polls, do not loop tightly.
+
+---
+
+## Core Workflow: Competitor Intelligence
 
 ```bash
-# 1. ADD a competitor (RankSpot begins discovering their keywords + backlinks async)
+# 1. See who RankSpot already found in AI answers before adding anyone by hand.
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/competitors?scope=discovered&limit=20" | jq \
+  '.data.items[] | {id, name, domain, mentionCount}'
+
+# 2. Promote one to tracked, or add a brand of your own. Same endpoint either way.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "Ahrefs", "domain": "ahrefs.com"}' \
-  https://api.rankspot.ai/v1/competitors | jq '.data.id'
-# Sync runs every 1–2 weeks. For immediate data contact dan@rankspot.ai.
+  https://api.rankspot.ai/v1/competitors | jq '.id'
+# Keyword and backlink discovery runs on a background sync every 1 to 2 weeks.
+# If the user needs data sooner, point them at dan@rankspot.ai.
 
-# 2. LIST competitor keywords you haven't planned content for yet
+# 3. Their keywords you have no content for.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?competitorId=<id>&type=new&sortBy=compositeScore&sortOrder=desc&limit=50" | jq \
+  "https://api.rankspot.ai/v1/keywords?competitorId=<id>&type=new&sortBy=compositeScore&sortOrder=desc" | jq \
   '.data.items[] | {keyword, compositeScore, searchVolume}'
 
-# 3. LIST competitor backlinks you don't have — your link gap
+# 4. Their backlinks, which is your link gap.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   "https://api.rankspot.ai/v1/backlinks?type=competitors&competitorId=<id>&sortBy=domainFromRank&sortOrder=desc" | jq \
   '.data.items[] | {domainFrom, domainFromRank, dofollow, anchor, urlFrom}'
-
-# 4. LIST Reddit/Quora threads where people discuss your niche
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/forum-opportunities?status=new&limit=50" | jq \
-  '.data.items[] | {title, url}'
 ```
 
 ---
 
 ## Commands Reference
 
-### Competitors
+### AI Visibility
 
-#### Add a Competitor
+RankSpot asks your tracked prompts on ChatGPT, Perplexity, Google AI Overview and Google AI Mode on a daily schedule, then analyses the answers. Platform values are `chatgpt`, `perplexity`, `google_ai_overview`, `google_ai_mode`.
 
-```bash
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Ahrefs", "domain": "ahrefs.com"}' \
-  https://api.rankspot.ai/v1/competitors | jq .
-```
+The list endpoints take optional `startDate` and `endDate`. Omit both and you get the full history, paginated. Either bound works alone.
 
-**Request body:**
-```json
-{ "name": "Ahrefs", "domain": "ahrefs.com" }
-```
-
-**Response (201):**
-```json
-{
-  "data": {
-    "id": "clx...",
-    "name": "Ahrefs",
-    "domain": "ahrefs.com",
-    "createdAt": "2026-05-31T00:00:00.000Z",
-    "updatedAt": "2026-05-31T00:00:00.000Z"
-  }
-}
-```
-
-**Important:** After creation, RankSpot begins discovering keywords and backlinks for this domain on the next background sync. Results do not appear immediately — we re-fetch competitors every 2 weeks. If you need to refetch right away, let us know dan@rankspot.ai
-
-**Errors:**
-- `400 competitor-limit-exceeded` — your plan's competitor limit has been reached
-- `400 competitor-already-exists` — this domain is already tracked
-
-#### List Competitors
+#### Summary
 
 ```bash
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/competitors?limit=20&offset=0" | jq .
+  "https://api.rankspot.ai/v1/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | jq .
 ```
 
-#### Delete a Competitor
-
-```bash
-curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/competitors/<id>
-```
-
-Returns `204 No Content`. Associated keywords and backlinks are preserved but their `competitorId` is set to null.
-
----
-
-### Keywords
-
-#### Add Keywords
-
-```bash
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"keywords": ["seo tools", "keyword research", "link building"]}' \
-  https://api.rankspot.ai/v1/keywords | jq .
-```
-
-**Response (201):** `{ "data": { "count": 3 } }` — duplicates are silently skipped.
-
-#### List Keywords
-
-The most important filter is `type=new` — these are keywords with no planned topic yet. This is where content opportunities live. Always start here before deciding what to write next.
-
-```bash
-# MOST IMPORTANT: unplanned keywords — no content assigned yet, best score first
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?type=new&sortBy=compositeScore&sortOrder=desc&limit=50" | jq .
-
-# Unplanned keywords from a specific competitor
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?type=new&competitorId=<id>&sortBy=compositeScore&sortOrder=desc" | jq .
-
-# All keywords sorted by composite score
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?sortBy=compositeScore&sortOrder=desc&limit=50" | jq .
-
-# Search by substring
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?keyword=seo&sortBy=searchVolume&sortOrder=desc" | jq .
-```
-
-**Query parameters:**
-
-| Parameter    | Values                                              | Default        |
-|--------------|-----------------------------------------------------|----------------|
-| `keyword`    | Substring filter                                    | —              |
-| `competitorId` | UUID — omit to see keywords across all competitors; pass an ID to scope to one | — |
-| `sortBy`     | `compositeScore`, `opportunityIndex`, `searchVolume`, `competitionIndex`, `aiScore` | `compositeScore` |
-| `sortOrder`  | `asc`, `desc`                                       | `desc`         |
-| `type`       | `all`, `new`, `planned`, `processed`, `archived`    | `all`          |
-| `limit`      | 1–100                                               | 20             |
-| `offset`     | ≥0                                                  | 0              |
-
-**Type meanings:**
-- `new` — **no topic or article yet** — these are your untapped opportunities
-- `planned` — linked to a topic but article not generated yet
-- `processed` — has a generated article (done)
-- `all` — all non-archived keywords
-- `archived` — soft-deleted
-
-**Keyword fields:**
-
-| Field             | Description                                                              |
-|-------------------|--------------------------------------------------------------------------|
-| `keyword`         | The keyword string                                                       |
-| `searchVolume`    | Monthly search volume                                                    |
-| `competitionIndex`| 0–100 competition level                                                  |
-| `competition`     | `LOW`, `MEDIUM`, `HIGH`                                                  |
-| `opportunityIndex`| 0–100 RankSpot-calculated opportunity (high volume + low competition)    |
-| `aiScore`         | 0–100 AI-generated relevance score for your business                     |
-| `compositeScore`  | 0–100 weighted blend of opportunity + AI score — the primary sort signal |
-| `topicIds`        | Topics this keyword is linked to                                         |
-| `articleIds`      | Articles generated from topics this keyword belongs to                   |
-
-#### Archive / Unarchive a Keyword
-
-```bash
-# Archive (soft-delete)
-curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/keywords/<id>
-
-# Restore
-curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/keywords/<id>/unarchive
-```
-
-Both return `204 No Content`.
-
-#### Get Semantic Keyword Cluster
-
-Returns keywords semantically similar to a seed keyword (cosine threshold 0.87, up to 30 results sorted by compositeScore).
-
-```bash
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/keywords/<id>/cluster | jq .
-```
+Both dates are **required** here. A score without a period means nothing.
 
 **Response (200):**
 ```json
 {
-  "data": [
-    { "id": "clx...", "keyword": "start a blog for free" },
-    { "id": "clx...", "keyword": "how to create a blog" }
+  "startDate": "2026-08-01",
+  "endDate": "2026-08-31",
+  "visibilityScore": 42.9,
+  "shareOfVoice": 22.5,
+  "citationShare": 8.1,
+  "categoryRank": 3,
+  "responsesCounted": 112,
+  "platforms": { "chatgpt": 66.7, "perplexity": 25, "google_ai_overview": null, "google_ai_mode": 0 },
+  "leaderboard": [
+    { "competitorId": "clx...", "name": "RankSpot", "domain": "rankspot.ai", "isOwnBrand": true, "mentions": 31, "shareOfVoice": 27.7, "position": 1, "sentiment": 82 }
   ]
 }
 ```
 
-Returns an empty array if the seed keyword has not been semantically indexed yet (indexing happens on a background schedule).
+| Field              | Meaning                                                                                       |
+|--------------------|-----------------------------------------------------------------------------------------------|
+| `visibilityScore`  | Share of answers naming your brand, 0 to 100, as the mean of the per-platform scores          |
+| `shareOfVoice`     | Your mentions as a share of all brand mentions                                                 |
+| `citationShare`    | Citations pointing at your domain as a share of all citations                                  |
+| `categoryRank`     | Your 1-based position in the leaderboard                                                       |
+| `responsesCounted` | Answers behind the scores. Read this before quoting any of the others.                         |
+| `platforms`        | Per-platform visibility. `null` means the platform produced no answer, `0` means it never named you. |
+| `leaderboard`      | Ten most-mentioned brands, with yours always included                                          |
 
-Use clusters to group related keywords into a single content topic so the generated article covers a broader semantic range.
+**Every score is nullable and null means "no data in the period", never zero.** Failed or incomplete runs are excluded everywhere, so an outage does not read as poor visibility.
 
----
+There is no built-in period comparison. Call it twice with two periods of equal length. Comparing 30 days against 7 measures the calendar, not your visibility.
 
-### Backlinks
-
-Backlinks are primarily used for **link gap analysis**: finding high-authority sites that link to your competitors but not to you. These are your link-building prospects. The default `type=competitors` surfaces exactly this — competitor backlinks you can go after.
-
-#### List Backlinks
+#### Prompts
 
 ```bash
-# MOST COMMON: competitor backlinks sorted by domain authority — your link prospecting list
+# List tracked prompts
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=competitors&sortBy=domainFromRank&sortOrder=desc" | jq \
-  '.data.items[] | {domainFrom, domainFromRank, dofollow, anchor, urlFrom}'
+  "https://api.rankspot.ai/v1/ai-visibility/prompts" | jq '.data.items[]'
 
-# Scope to a single competitor for focused gap analysis
+# Archived prompts instead
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=competitors&competitorId=<id>&sortBy=domainFromRank&sortOrder=desc" | jq .
+  "https://api.rankspot.ai/v1/ai-visibility/prompts?type=archived" | jq .
 
-# Filter by linking domain — check if a specific site links to competitors
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=competitors&domainFrom=producthunt" | jq .
+# Track a new prompt. Max 2000 characters.
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "best seo tools for small business"}' \
+  https://api.rankspot.ai/v1/ai-visibility/prompts | jq .
 
-# Your own backlinks — audit your existing link profile
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=mine&sortBy=domainFromRank&sortOrder=desc" | jq .
+# Reword an existing prompt. The run history stays attached.
+curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "best seo tools for small businesses in 2026"}' \
+  https://api.rankspot.ai/v1/ai-visibility/prompts/<id> | jq .
+
+# Archive (frees an allowance slot) and restore
+curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/ai-visibility/prompts/<id>
+curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/ai-visibility/prompts/<id>/unarchive
 ```
 
-**Query parameters:**
+Prompts are archived, never deleted: the run history is the only source for the reporting, so removing it would rewrite past results. Resubmitting a prompt you archived restores it instead of failing.
 
-| Parameter    | Values                                                    | Default          |
-|--------------|-----------------------------------------------------------|------------------|
-| `type`       | `competitors`, `processed`, `mine`, `archived`            | `competitors`    |
-| `competitorId` | UUID — omit to see backlinks across all competitors; pass an ID to scope to one. Only applies when `type=competitors`. | — |
-| `domainFrom` | Substring filter on the linking domain                    | —                |
-| `sortBy`     | `domainFromRank`, `firstSeen`, `backlinkSpamScore`        | `domainFromRank` |
-| `sortOrder`  | `asc`, `desc`                                             | `desc`           |
-| `limit`      | 1–100                                                     | 20               |
-| `offset`     | ≥0                                                        | 0                |
+**Allowances:** 5 prompts with no subscription, 10 on trial, and whatever the plan sets once subscribed (25 if the plan does not say).
 
-**Type meanings:**
-- `competitors` — unprocessed competitor backlinks (status=new) — your active link-building prospects
-- `processed` — competitor backlinks you've already acted on
-- `mine` — your own backlinks (all statuses)
-- `archived` — soft-deleted backlinks
+**Errors:** `400 ai-prompt-limit-exceeded`, `400 ai-prompt-already-exists`, `400 ai-prompt-text-required`.
 
-**Backlink fields:**
-
-| Field              | Description                                                  |
-|--------------------|--------------------------------------------------------------|
-| `domainFrom`       | The linking domain                                           |
-| `urlFrom`          | The exact linking URL                                        |
-| `urlTo`            | The target URL on your / competitor's domain                 |
-| `domainTo`         | The target domain                                            |
-| `domainFromRank`   | Domain authority score of the linking domain (higher = stronger) |
-| `pageFromRank`     | Page-level authority of the linking page                     |
-| `rank`             | Combined authority score                                     |
-| `dofollow`         | `true` if the link passes link equity                        |
-| `backlinkSpamScore`| Spam score (lower = cleaner link profile)                    |
-| `anchor`           | Anchor text used for the link                                |
-| `firstSeen`        | When the backlink was first detected                         |
-| `attributes`       | `rel` attribute values, e.g. `["noopener", "noreferrer"]`   |
-| `competitorId`     | Which competitor this belongs to (null = your own backlink)  |
-| `status`           | `new` (not yet acted on) or `processed` (already acted on)  |
-
-#### Update Status (Mark as Processed)
-
-Mark a competitor backlink as processed once you've acted on it (submitted the site, sent outreach, etc.). Processed backlinks move out of `type=competitors` into `type=processed` so your prospect list stays clean.
+#### Responses
 
 ```bash
-# Mark as processed
+# Captured answers, newest first
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/responses?startDate=2026-08-01&endDate=2026-08-31&limit=50" | jq \
+  '.data.items[] | {id, platform, runDate, promptText, ownBrandMentioned, citationsCount}'
+
+# Only answers that did not name you, on two platforms
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/responses?mentioned=false&platform=chatgpt,perplexity" | jq .
+
+# Only answers to one tracked prompt
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/responses?promptId=<id>" | jq .
+
+# The full answer, its citations in order, the searches it ran, every brand it named
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/ai-visibility/responses/<id> | jq .
+```
+
+Runs that failed or are still in flight are never returned, so an absent response is not counted as a miss.
+
+The detail view adds `answerMarkdown`, `citations`, `fanoutQueries` and a richer `brands` array carrying `competitorId`, `position`, `sentiment` (0 to 100, where 0 to 33 is negative, 34 to 66 neutral, 67 to 100 positive) and `isOwnBrand`.
+
+#### Cited pages
+
+```bash
+# The worklist: cited pages you have not acted on, most cited first
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/citations?type=new&limit=50" | jq \
+  '.data.items[] | {id, url, domain, citations, platforms, isOwnDomain}'
+
+# Narrow to one site, over a period
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/citations?domain=reddit&startDate=2026-08-01&endDate=2026-08-31" | jq .
+
+# Mark one handled, or put it back on the worklist
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"status": "processed"}' \
-  https://api.rankspot.ai/v1/backlinks/<id>
+  https://api.rankspot.ai/v1/ai-visibility/citations/<id> | jq .
 
-# Mark back to new (if you want to re-engage)
+# Archive and restore
+curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/ai-visibility/citations/<id>
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"status": "new"}' \
-  https://api.rankspot.ai/v1/backlinks/<id>
+  https://api.rankspot.ai/v1/ai-visibility/citations/<id>/unarchive
 ```
 
-Returns `204 No Content`.
+| Parameter               | Values                                     | Default     |
+|-------------------------|--------------------------------------------|-------------|
+| `type`                  | `new`, `processed`, `archived`             | `new`       |
+| `domain`                | Substring, case-insensitive                 | none        |
+| `startDate` / `endDate` | `YYYY-MM-DD`                                | full history |
+| `sortBy`                | `citations`, `lastSeenAt`, `firstSeenAt`, `domain` | `citations` |
+| `sortOrder`             | `asc`, `desc`                               | `desc`      |
 
-**Note:** When a competitor backlink is verified to be linking to your domain too, RankSpot automatically moves it to `type=mine` and resets its status to `new`.
+`citations` counts only what falls inside the requested period. `firstSeenAt` and `lastSeenAt` are all-time and are not clipped to it. Status and archive are separate axes: `PATCH` sets status, `DELETE` and `/unarchive` handle archiving. Archiving a page does not remove it from the reporting, because it is a statement about your workflow, not about what the engines cited.
 
-#### Archive / Unarchive a Backlink
+#### Fanout queries
+
+The searches an engine ran while composing an answer. A citation tells you which page an engine trusted. A fanout query tells you what it decided it needed to know, so a query you rank for nowhere is a content gap in the engine's own words.
 
 ```bash
-# Archive
-curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/backlinks/<id>
+# The worklist: queries with no article planned and none written
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/fanouts?type=new&limit=50" | jq \
+  '.data.items[] | {id, query, searches, platforms}'
 
-# Restore
+# Everything about one theme
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/fanouts?query=screen%20recorder&type=all" | jq .
+
+# The cluster: every phrasing of the same intent, seed first
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/ai-visibility/fanouts/<id>/cluster | jq .
+
+# Archive and restore
+curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/ai-visibility/fanouts/<id>
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/backlinks/<id>/unarchive
+  https://api.rankspot.ai/v1/ai-visibility/fanouts/<id>/unarchive
 ```
+
+| Parameter               | Values                                              | Default      |
+|-------------------------|-----------------------------------------------------|--------------|
+| `type`                  | `new`, `planned`, `processed`, `all`, `archived`    | `new`        |
+| `query`                 | Substring, case-insensitive                          | none         |
+| `startDate` / `endDate` | `YYYY-MM-DD`                                         | full history |
+| `sortBy`                | `searches`, `lastSeenAt`, `firstSeenAt`, `query`     | `searches`   |
+| `sortOrder`             | `asc`, `desc`                                        | `desc`       |
+
+State is derived from the work linked to the query, the same rule keywords use, so it moves on its own: `planned` means a `write_article` action exists but no article, `processed` means an article exists.
+
+The cluster returns up to 100 related searches with the seed leading (the seed reports `searches: 0`). Pass those ids straight to `POST /actions` as `fanoutQueryIds`. Engines phrase one intent many ways, so an action should carry the whole cluster rather than whichever phrasing you happened to pick.
 
 ---
 
-### Forum Opportunities
+### Actions
 
-Forum opportunities are Reddit threads, Quora questions, and community discussions where people are asking about or discussing a problem your customer solves. Engaging in these threads helps with **GEO (Generative Engine Optimization)** — when AI models like ChatGPT and Perplexity synthesise answers, they pull from these conversations. Being present and helpful in relevant discussions increases the chance your brand gets cited.
+An action is one piece of planned work. Every action has a `type` that says what kind of work it is and which target it needs. Actions replace the old topics endpoints.
 
-These are not primarily for link building — they're for brand visibility in the conversations that AI models learn from.
+| Type               | What it means                                                    | Required target |
+|--------------------|------------------------------------------------------------------|-----------------|
+| `write_article`    | Plan a piece of content, then call `/generate` to write it        | none            |
+| `update_article`   | Any edit to an existing article                                   | `articleId`     |
+| `publish_article`  | Push a finished article to the workspace integrations             | `articleId`     |
+| `request_indexing` | Ask Google to index a published page it has missed                | `articleId`     |
+| `earn_link`        | Go after a referring domain your competitors have                 | `backlinkId`    |
+| `get_cited`        | Get onto a page AI engines already cite                           | `citationId`    |
+| `reply_thread`     | Reply on a cited Reddit or Quora thread                           | `citationId`    |
+| `record_video`     | Make a video of your own, since you cannot be added to someone else's | `citationId` |
+| `track_competitor` | Start tracking a brand RankSpot discovered in AI answers          | `competitorId`  |
+| `add_prompt`       | Track a question buyers ask that no existing prompt covers        | none            |
+| `other`            | Anything you just want written down                               | none            |
 
-RankSpot surfaces these automatically; you can also add your own.
+**Only `write_article` produces an article.** The rest are a person's job, and you close them by hand.
 
-#### Create a Forum Opportunity
+#### Create an action
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "title": "What SEO tools do you actually use day-to-day?",
-    "url": "https://reddit.com/r/SEO/comments/abc123/what_seo_tools_do_you_actually_use",
-    "competitorId": "<optional-competitor-id>"
-  }' \
-  https://api.rankspot.ai/v1/forum-opportunities | jq .
-```
-
-**Idempotent:** submitting the same URL twice returns the existing record unchanged.
-
-#### List Forum Opportunities
-
-```bash
-# New threads to engage with
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/forum-opportunities?status=new&limit=50" | jq \
-  '.data.items[] | {title, url}'
-
-# Threads related to a specific competitor
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/forum-opportunities?competitorId=<id>&status=new" | jq .
-
-# Both new and already engaged
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/forum-opportunities?status=new,processed" | jq .
-```
-
-#### Update Status (Mark as Processed)
-
-```bash
-curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"status": "processed"}' \
-  https://api.rankspot.ai/v1/forum-opportunities/<id> | jq .
-```
-
-Status values: `new` | `processed`
-
-#### Archive a Forum Opportunity
-
-```bash
-curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/forum-opportunities/<id>
-```
-
----
-
-### People Also Ask
-
-"People Also Ask" questions are discovered automatically by RankSpot from search results for your tracked keywords. They cannot be created via the API — only read and managed.
-
-#### List Questions
-
-```bash
-# All new questions
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/people-also-ask?status=new&limit=50" | jq .
-
-# Multiple status values
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/people-also-ask?status=new,processed" | jq .
-```
-
-**Question fields:** `id`, `question`, `status` (`new` | `processed`), `postId` (the keyword post that triggered the question).
-
-#### Mark Question as Processed
-
-```bash
-curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"status": "processed"}' \
-  https://api.rankspot.ai/v1/people-also-ask/<id> | jq .
-```
-
-#### Archive a Question
-
-```bash
-curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/people-also-ask/<id>
-```
-
----
-
-### Topics
-
-Topics are content briefs. Once created, a topic sits in `planned` status until you trigger generation via `POST /topics/:id/generate`. Generation is asynchronous and takes **5–10 minutes** — poll `GET /topics/:id` until `status` changes to `generated`. Only `planned` topics can be edited — `generating` and `generated` topics are locked.
-
-#### Create a Topic
-
-```bash
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
+    "type": "write_article",
     "title": "How to Do Keyword Research in 2026",
+    "shortDescription": "Engines ran this search 14 times and cited nobody you compete with.",
     "description": "A step-by-step guide for beginners targeting informational intent.",
-    "additionalInstructions": "Include a comparison table of top tools. Avoid mentioning Semrush.",
-    "categoryId": "<optional-category-id>",
-    "keywordIds": ["<id1>", "<id2>", "<id3>"]
+    "additionalInstructions": "Include a comparison table of top tools.",
+    "slug": "keyword-research-2026",
+    "categoryId": "<category-id>",
+    "keywordIds": ["<id1>", "<id2>"],
+    "fanoutQueryIds": ["<id3>", "<id4>"]
   }' \
-  https://api.rankspot.ai/v1/topics | jq .
+  https://api.rankspot.ai/v1/actions | jq .
 ```
 
-**Topic fields in request:**
+| Field                    | Applies to                                    | Notes                                                         |
+|--------------------------|-----------------------------------------------|---------------------------------------------------------------|
+| `type`                   | all, required                                  | No default                                                    |
+| `title`                  | all, required                                  | Max 500 chars, unique per workspace, archived rows ignored     |
+| `shortDescription`       | all                                            | Max 200. The one line shown under the title, usually the only text anyone reads. Lead with evidence and numbers, do not restate the title. |
+| `description`            | all                                            | Max 2000. On `write_article` this is the generation brief, elsewhere the fuller explanation |
+| `additionalInstructions` | all                                            | Max 2000. On `update_article` this carries the actual edit instruction |
+| `slug`                   | `write_article` only                           | Validated, not rewritten. Unique across actions and articles. Omit to derive it from the title at generation time. |
+| `categoryId`             | `write_article` only                           |                                                               |
+| `keywordIds`             | `write_article` only                           | Broadens semantic coverage                                    |
+| `fanoutQueryIds`         | `write_article`, `update_article`, `add_prompt` | Provenance, not a target. Send the whole cluster.             |
+| target id                | per the table above                            | `articleId`, `backlinkId`, `citationId` or `competitorId`      |
 
-| Field                   | Required | Description                                                    |
-|-------------------------|----------|----------------------------------------------------------------|
-| `title`                 | Yes      | Topic/article title (max 500 chars)                           |
-| `description`           | No       | What the article should cover (max 2000 chars)                |
-| `additionalInstructions`| No       | Custom writing instructions for the AI (max 2000 chars)       |
-| `categoryId`            | No       | Assign to a category                                          |
-| `keywordIds`            | No       | Link existing keyword IDs — broadens semantic coverage        |
+Fields that do not apply to the type are dropped silently rather than rejected. A target that does not exist in your workspace is a 400.
 
-#### List Topics
+Only one open action per target per type. Three types share `articleId` because publishing, indexing and editing an article are different work.
 
-```bash
-# All planned topics
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/topics?status=planned" | jq .
-
-# Search by title/description
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/topics?search=keyword+research" | jq .
-
-# Filter by category
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/topics?categoryId=<id>" | jq .
-```
-
-Status values: `planned` | `generating` | `generated`
-
-#### Get a Single Topic
+#### List, read, update
 
 ```bash
+# List. Archived actions are never returned.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/topics/<id> | jq .
-```
+  "https://api.rankspot.ai/v1/actions?status=new,in_progress&types=write_article,get_cited&limit=50" | jq \
+  '.data.items[] | {id, type, title, status}'
 
-Returns the topic including linked `keywords` array and `articleId` if generation is complete.
+# Search by title or description
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/actions?search=keyword%20research" | jq .
 
-#### Update a Topic (planned only)
+# One action, with its targets and linked keywords embedded
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/actions/<id> | jq .
 
-```bash
+# Edit the content (only while status is new)
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "title": "Keyword Research Guide 2026: Tools & Tactics",
-    "keywordIds": ["<id1>", "<id2>", "<id4>"]
-  }' \
-  https://api.rankspot.ai/v1/topics/<id> | jq .
+  -d '{"title": "Keyword Research Guide 2026", "keywordIds": ["<id1>", "<id4>"]}' \
+  https://api.rankspot.ai/v1/actions/<id> | jq .
+
+# Close it, which also marks the citation or backlink behind it handled
+curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "processed"}' \
+  https://api.rankspot.ai/v1/actions/<id> | jq .
+
+# Dismiss it without deciding it. Nothing is deleted.
+curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"archived": true}' \
+  https://api.rankspot.ai/v1/actions/<id> | jq .
 ```
 
-Passing `keywordIds` **replaces** the full set of linked keywords. Returns `400` if the topic is `generating` or `generated`.
+**Statuses:** `new` (not started), `in_progress` (an executor is running), `processed` (finished).
 
-**Note:** Topic titles must be unique per workspace (case-insensitive). `POST /topics` returns `400` if a topic with the same title already exists.
+Content can only be edited while the action is `new`. Once an executor starts, a content edit returns `action-locked`. Bookkeeping stays open: `archived` at any point, and `status` on anything that is not currently `in_progress`.
 
-#### Generate an Article from a Topic
+`status: "processed"` stamps `completedAt` and marks the evidence behind the action handled. `status: "new"` clears `completedAt`, puts that evidence back on the worklist and undoes a dismissal. This runs both ways: un-archiving a citation, or setting it back to `new`, reopens its action.
 
-Triggers AI article generation. The topic must be in `planned` status. Generation is asynchronous and takes **5–10 minutes** — poll `GET /topics/:id` until `status` is `generated`, then fetch the article via `articleId`.
+Passing `keywordIds` replaces the full set of linked keywords.
+
+#### Generate an article
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/topics/<id>/generate | jq .
+  https://api.rankspot.ai/v1/actions/<id>/generate | jq .
 ```
 
-**Response (200):**
-```json
-{ "success": true }
-```
+**Response (201):** `{ "success": true }`
 
-Then poll for completion:
+The action must be `type: "write_article"` with `status: "new"`. Generation is asynchronous and takes roughly 5 to 10 minutes. Poll `GET /actions/:id` until `status` is `processed`, then read `articleId`.
 
-```bash
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/topics/<id> | jq '{status: .data.status, articleId: .data.articleId}'
-```
-
-**Errors:**
-- `400` — topic is not in `planned` status (already generating or generated)
-- `403` — article generation limit reached for your plan
-
-#### Delete a Topic
+#### Delete an action
 
 ```bash
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/topics/<id>
+  https://api.rankspot.ai/v1/actions/<id>
 ```
 
-Permanent. The generated article (if any) is preserved; its `topicId` link is removed.
+Returns `204`. Hard delete, permanent. Any generated article is preserved and only the link is removed. To take an action off the board reversibly, use `{"archived": true}` instead.
+
+**Errors:** `400 action-title-already-exists`, `action-slug-already-exists`, `action-reference-not-found`, `action-target-occupied`, `action-locked`, `action-in-progress`, `action-type-not-generatable`.
 
 ---
 
 ### Articles
 
-Articles are AI-generated from topics. They cannot be created directly via the API — use `POST /topics/:id/generate` to trigger generation. Generation takes 5–10 minutes. Once complete the article is accessible here. Content and status are managed by RankSpot; only metadata can be updated via the API.
-
-#### List Articles
+Articles come from `write_article` actions. They cannot be created directly. Content and status are managed by RankSpot; only metadata is editable here.
 
 ```bash
-# All articles
+# List. contentHtml is omitted to keep payloads small.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/articles?limit=50" | jq .
+  "https://api.rankspot.ai/v1/articles?limit=50" | jq '.data.items[] | {id, title, slug, status}'
 
-# Filter by status
+# Published pages Google has not indexed. The set worth acting on.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/articles?status=generated" | jq .
+  "https://api.rankspot.ai/v1/articles?status=published&indexed=false" | jq \
+  '.data.items[] | {title, slug, indexCoverageState, indexCheckedAt}'
 
-# Filter by category
+# Go from a published URL back to its article, by the last path segment.
+# This is how a page URL from /gsc/performance becomes an articleId.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/articles?categoryId=<id>" | jq .
+  "https://api.rankspot.ai/v1/articles?slug=how-to-start-a-blog" | jq '.data.items[0]'
+
+# Check whether you already covered a subject before planning another article
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/articles?search=screen%20recording" | jq '.data.items[] | .title'
+
+# One article, with full HTML. No data envelope.
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/articles/<id> | jq '{title, slug, status, contentHtml}'
 ```
 
-Status values: `draft` | `generating` | `generated`
+| Parameter    | Values                                                | Default |
+|--------------|-------------------------------------------------------|---------|
+| `search`     | Title or description substring                         | none    |
+| `slug`       | Slug substring                                         | none    |
+| `status`     | `draft`, `generating`, `generated`, `published`        | none    |
+| `indexed`    | `true`, `false`                                        | none    |
+| `categoryId` | UUID                                                   | none    |
 
-**Note:** `contentHtml` is omitted from list responses. Fetch a single article to get the full HTML.
+**Statuses:** `generated` means the article exists in RankSpot and has never been sent anywhere. `published` means it reached at least one integration.
 
-#### Get an Article (with full HTML content)
+**Dates matter here.** Three fields look similar and answer different questions:
+
+| Field              | Answers                                                                  |
+|--------------------|---------------------------------------------------------------------------|
+| `firstPublishedAt` | When it first went live. The publication date. Does not move on re-publish. |
+| `lastPublishedAt`  | When the content last reached readers. This is your "last updated".        |
+| `updatedAt`        | Any write at all, including a metadata edit. Not a publish date.           |
+
+**Index fields** are refreshed by a weekly job, so they report the last check rather than this instant:
+
+| Field                | Meaning                                                                          |
+|----------------------|-----------------------------------------------------------------------------------|
+| `isIndexed`          | Whether Search Console reports the page as indexed                                |
+| `indexCoverageState` | Google's own reason when it is not. This decides what to do about it.             |
+| `indexCheckedAt`     | When the status was last checked. Null means never checked, which is not the same as not indexed. |
+| `indexRequestedAt`   | When indexing was last requested. Throttled to one per page per week.             |
+
+Reading `indexCoverageState`: "Crawled - currently not indexed" means Google looked and declined, so the page needs work. "Discovered - currently not indexed" means it has not been crawled yet. A canonical or noindex reason means neither requesting nor rewriting will help.
 
 ```bash
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/articles/<id> | jq .
-```
-
-**Response (200):**
-```json
-{
-  "data": {
-    "id": "clx...",
-    "title": "How to Do Keyword Research in 2026",
-    "description": "A step-by-step guide for beginners.",
-    "contentHtml": "<h1>How to Do Keyword Research...</h1><p>...</p>",
-    "status": "generated",
-    "slug": "how-to-do-keyword-research-2026",
-    "coverImageUrl": "https://cdn.example.com/cover.jpg",
-    "categoryId": "clx...",
-    "createdAt": "2026-05-31T00:00:00.000Z",
-    "updatedAt": "2026-05-31T00:00:00.000Z"
-  }
-}
-```
-
-#### Update Article Metadata
-
-```bash
+# Update metadata
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "title": "Keyword Research Guide 2026",
-    "slug": "keyword-research-guide-2026",
-    "coverImageUrl": "https://cdn.example.com/new-cover.jpg",
-    "categoryId": "<id>"
-  }' \
+  -d '{"title": "Keyword Research Guide 2026", "slug": "keyword-research-guide-2026", "categoryId": "<id>"}' \
   https://api.rankspot.ai/v1/articles/<id> | jq .
-```
 
-Updatable fields: `title`, `description`, `slug` (must be unique in workspace), `coverImageUrl`, `categoryId`. Article `contentHtml` and `status` cannot be changed via the API.
-
-#### Delete an Article
-
-```bash
+# Delete. Permanent. Action and keyword links are preserved.
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   https://api.rankspot.ai/v1/articles/<id>
 ```
 
-Permanent. Associated topic and keyword links are preserved.
+Updatable: `title`, `description`, `slug` (unique per workspace), `coverImageUrl`, `categoryId`.
 
 ---
 
-### Categories
-
-Categories help organise topics and articles. Names must be unique within a workspace.
-
-#### Create a Category
+### Keywords
 
 ```bash
+# Add keywords. Duplicates are silently skipped.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"name": "SEO Guides"}' \
-  https://api.rankspot.ai/v1/categories | jq .
-```
+  -d '{"keywords": ["seo tools", "keyword research", "link building"]}' \
+  https://api.rankspot.ai/v1/keywords | jq .
+# Response (201): { "count": 3 }
 
-**Response (201):**
-```json
-{
-  "data": {
-    "id": "clx...",
-    "name": "SEO Guides",
-    "color": "violet",
-    "createdAt": "2026-05-31T00:00:00.000Z",
-    "updatedAt": "2026-05-31T00:00:00.000Z"
-  }
-}
-```
-
-#### List Categories
-
-```bash
+# The worklist, which is the default: no article planned and none written
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/categories" | jq .
-```
+  "https://api.rankspot.ai/v1/keywords?sortBy=compositeScore&sortOrder=desc&limit=50" | jq '.data.items[]'
 
-#### Rename a Category
+# Scoped to one competitor
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/keywords?type=new&competitorId=<id>&sortBy=compositeScore&sortOrder=desc" | jq .
 
-```bash
-curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Keyword Research"}' \
-  https://api.rankspot.ai/v1/categories/<id> | jq .
-```
+# Substring search across everything non-archived
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/keywords?type=all&keyword=seo&sortBy=searchVolume&sortOrder=desc" | jq .
 
-#### Delete a Category
-
-```bash
+# Archive and restore. Both return 204.
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/categories/<id>
+  https://api.rankspot.ai/v1/keywords/<id>
+curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/keywords/<id>/unarchive
+
+# Semantic cluster. Returns a bare array, no data envelope.
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/keywords/<id>/cluster | jq .
 ```
 
-Topics and articles that were assigned to this category will have their `categoryId` set to null.
+| Parameter      | Values                                                                     | Default          |
+|----------------|----------------------------------------------------------------------------|------------------|
+| `type`         | `new`, `planned`, `processed`, `all`, `archived`                            | `new`            |
+| `keyword`      | Substring filter                                                            | none             |
+| `competitorId` | UUID. Omit for keywords across all competitors.                             | none             |
+| `sortBy`       | `compositeScore`, `opportunityIndex`, `searchVolume`, `competitionIndex`, `aiScore` | `compositeScore` |
+| `sortOrder`    | `asc`, `desc`                                                               | `desc`           |
+
+**Type meanings.** State is derived from the actions and articles linked to the keyword, so it moves on its own.
+
+- `new` is the default and the worklist: no article planned, none written
+- `planned` has a `write_article` action but no article yet
+- `processed` has a linked article
+- `all` is every non-archived keyword
+- `archived` is the soft-deleted set
+
+**Keyword fields:**
+
+| Field              | Description                                                       |
+|--------------------|-------------------------------------------------------------------|
+| `keyword`          | The keyword string                                                |
+| `searchVolume`     | Monthly search volume                                             |
+| `competition`      | `LOW`, `MEDIUM`, `HIGH`                                           |
+| `competitionIndex` | 0 to 100 competition level                                        |
+| `opportunityIndex` | 0 to 100, high volume plus low competition                        |
+| `aiScore`          | 0 to 100 relevance to your business                               |
+| `compositeScore`   | 0 to 100 blend of opportunity and AI score. The primary sort signal. |
+| `actionIds`        | Actions this keyword is linked to                                 |
+| `articleIds`       | Articles written for it                                           |
+
+The cluster walks pgvector cosine similarity at threshold 0.87 and returns up to 100 keywords as `[{ id, keyword }]`, sorted by composite score. An empty array means the seed has not been embedded yet, which happens on a background schedule. Use a cluster when planning a `write_article` action so the piece covers a broader semantic range.
 
 ---
 
-## Workflow: Competitor Backlink Gap Analysis
+### Backlinks
 
-Use this workflow when the user asks to:
-- "Show me backlinks my competitors have that I don't"
-- "Where are my competitors getting links from?"
-- "Find link-building prospects from competitor research"
-
-Competitor backlinks are sites that already link to your competitors — they've decided your niche is worth linking to. These are your warmest prospects.
+Backlinks are discovered by a background sync and cannot be created through the API. The default view is your link gap: high-authority sites linking to competitors but not to you.
 
 ```bash
-# Step 1: Add competitors (if not already tracked)
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Competitor A", "domain": "competitor-a.com"}' \
-  https://api.rankspot.ai/v1/competitors | jq '.data.id'
-# Sync runs every 1–2 weeks. For immediate data contact dan@rankspot.ai.
-
-# Step 2: Pull their highest-authority backlinks — your link gap list
+# The prospecting list, strongest linking domains first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=competitors&competitorId=<id>&sortBy=domainFromRank&sortOrder=desc&limit=100" | jq \
-  '.data.items[] | {domainFrom, domainFromRank, dofollow, anchor, urlFrom}'
+  "https://api.rankspot.ai/v1/backlinks?type=competitors&sortBy=domainFromRank&sortOrder=desc" | jq \
+  '.data.items[] | {id, domainFrom, domainFromRank, dofollow, anchor, urlFrom}'
 
-# Step 3: Check if a specific high-value domain links to any competitor
+# One competitor at a time
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/backlinks?type=competitors&competitorId=<id>&sortBy=domainFromRank&sortOrder=desc" | jq .
+
+# Does a specific site link to any competitor?
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   "https://api.rankspot.ai/v1/backlinks?type=competitors&domainFrom=producthunt" | jq .
 
-# Step 4: Check your own link profile for comparison
+# Your own profile
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=mine&sortBy=domainFromRank&sortOrder=desc" | jq \
-  '.data.items[] | {domainFrom, domainFromRank, dofollow}'
+  "https://api.rankspot.ai/v1/backlinks?type=mine&sortBy=domainFromRank&sortOrder=desc" | jq .
 
-# Step 5: After contacting or submitting to a site, mark the backlink as processed
+# Mark one handled after outreach. Note the /update suffix. Returns 204.
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"status": "processed"}' \
+  https://api.rankspot.ai/v1/backlinks/<id>/update
+
+# Archive and restore
+curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   https://api.rankspot.ai/v1/backlinks/<id>
-
-# Step 6: Review what you've already acted on
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=processed&sortBy=domainFromRank&sortOrder=desc" | jq \
-  '.data.items[] | {domainFrom, domainFromRank, status}'
+curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/backlinks/<id>/unarchive
 ```
+
+| Parameter      | Values                                              | Default          |
+|----------------|-----------------------------------------------------|------------------|
+| `type`         | `competitors`, `mine`, `processed`, `archived`      | `competitors`    |
+| `competitorId` | UUID. Only applies when `type=competitors`.         | none             |
+| `domainFrom`   | Substring filter on the linking domain              | none             |
+| `sortBy`       | `domainFromRank`, `firstSeen`, `backlinkSpamScore`  | `domainFromRank` |
+| `sortOrder`    | `asc`, `desc`                                       | `desc`           |
+
+**Backlink fields:**
+
+| Field               | Description                                                  |
+|---------------------|--------------------------------------------------------------|
+| `domainFrom`        | The linking domain                                           |
+| `urlFrom`           | The exact linking page                                       |
+| `urlTo` / `domainTo`| Where the link points                                        |
+| `domainFromRank`    | Authority of the linking domain, higher is stronger          |
+| `pageFromRank`      | Authority of the linking page                                |
+| `rank`              | Combined authority score                                     |
+| `dofollow`          | `true` when the link passes equity                           |
+| `backlinkSpamScore` | Lower is cleaner                                             |
+| `anchor`            | Anchor text                                                  |
+| `firstSeen`         | When it was first detected                                   |
+| `attributes`        | `rel` values, for example `["noopener", "noreferrer"]`       |
+| `competitorId`      | Which competitor it belongs to. Null means it is your own.   |
+| `status`            | `new` or `processed`                                         |
+
+Once RankSpot verifies a competitor backlink also points at your domain, it moves to `type=mine` and its status resets to `new`.
+
+To track outreach properly, create an `earn_link` action against the backlink. Closing the action marks the backlink processed, and reopening it puts the backlink back on the worklist.
 
 ---
 
-## Workflow: Unplanned Keywords → Content Plan
-
-Use this when the user asks to:
-- "What keywords don't I have content for yet?"
-- "Show me my best keyword opportunities"
-- "Group my keywords into content topics"
-- "Build a content calendar from my keyword list"
+### Competitors
 
 ```bash
-# Step 1: List unplanned keywords — the content gap, best score first
+# Brands you track (default), newest first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?type=new&sortBy=compositeScore&sortOrder=desc&limit=100" | jq \
-  '.data.items[] | {id, keyword, compositeScore, searchVolume, competitionIndex}'
+  "https://api.rankspot.ai/v1/competitors?scope=tracked&limit=20" | jq '.data.items[]'
 
-# Step 2: For your best seed keyword, get its semantic cluster
+# Brands RankSpot found in AI answers but is not tracking, most mentioned first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/keywords/<seed-id>/cluster | jq '.data[]'
+  "https://api.rankspot.ai/v1/competitors?scope=discovered" | jq \
+  '.data.items[] | {id, name, domain, mentionCount}'
 
-# Step 3: Create a topic with the seed + cluster (broader semantic coverage = better article)
+# Add a brand, or promote a discovered one. Same call.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "title": "Complete Guide to [Topic]",
-    "description": "Covers [seed keyword] and related searches.",
-    "keywordIds": ["<seed-id>", "<cluster-id-1>", "<cluster-id-2>"]
-  }' \
-  https://api.rankspot.ai/v1/topics | jq .
+  -d '{"name": "Ahrefs", "domain": "ahrefs.com"}' \
+  https://api.rankspot.ai/v1/competitors | jq .
 
-# Step 4: Trigger generation (topic must be "planned")
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/topics/<topic-id>/generate | jq .
-
-# Step 5: Poll until status is "generated" (takes 5–10 minutes)
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/topics/<topic-id> | jq '{status: .data.status, articleId: .data.articleId}'
-
-# Step 5: Fetch the generated article with full HTML
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/articles/<article-id> | jq '{title: .data.title, contentHtml: .data.contentHtml}'
+# Stop tracking. Returns 204.
+curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/competitors/<id>
 ```
+
+`scope` takes `tracked` (default), `discovered` or `all`.
+
+**Response (201) from POST, no data envelope:**
+```json
+{
+  "id": "clx...",
+  "name": "Ahrefs",
+  "domain": "ahrefs.com",
+  "isTracked": true,
+  "autoDiscovered": false,
+  "mentionCount": 12,
+  "createdAt": "2026-08-31T00:00:00.000Z",
+  "updatedAt": "2026-08-31T00:00:00.000Z"
+}
+```
+
+`domain` must be a bare hostname such as `ahrefs.com`, with no scheme and no path.
+
+Your plan sets how many competitors you can track, and the default is 3. Auto-discovered brands cost nothing against that limit until you promote them. Posting a domain RankSpot already discovered promotes that row and keeps the mentions attributed to it, rather than creating a second one.
+
+Keyword and backlink discovery starts on the next background sync, which runs every 1 to 2 weeks. If the user needs data sooner, point them at **dan@rankspot.ai**.
+
+Deleting a competitor stops tracking it and removes it from every scope. The AI answers already attributed to it are kept so past visibility scores do not change. Keywords and backlinks are preserved. Adding the same domain again restores it.
+
+**Errors:** `400 competitor-limit-exceeded` (plan limit reached, do not retry), `400 competitor-already-exists` (already tracked, or it is your own brand).
 
 ---
 
-## Workflow: GEO Forum Engagement Pipeline
+### Forum Opportunities
 
-Use this when the user asks to:
-- "Find Reddit threads where people are looking for tools like mine"
-- "What Quora questions should I answer for GEO visibility?"
-- "Where do people discuss problems my product solves?"
-- "Track my community engagement for AI search visibility"
-
-Being present and helpful in the conversations that AI models (ChatGPT, Perplexity, Gemini) learn from increases the probability your brand gets cited when those models answer related queries.
+Reddit threads, Quora questions and community discussions where people are talking about the problem your product solves. These matter mostly for AI visibility: being present and useful in the conversations models learn from raises the chance they cite you. RankSpot surfaces them, and you can add your own.
 
 ```bash
-# Step 1: List new forum threads to engage with
+# New threads to engage with
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/forum-opportunities?status=new&limit=100" | jq \
-  '.data.items[] | {id, title, url}'
+  "https://api.rankspot.ai/v1/forum-opportunities?status=new&limit=50" | jq '.data.items[] | {id, title, url}'
 
-# Step 2: Add a thread you found manually (Reddit, Quora, Indie Hackers, etc.)
+# New and already engaged
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/forum-opportunities?status=new,processed" | jq .
+
+# Add one you found yourself. Idempotent on url.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"title": "What SEO tools do you actually use?", "url": "https://reddit.com/r/SEO/comments/xyz"}' \
+  -d '{"title": "What SEO tools do you actually use?", "url": "https://reddit.com/r/SEO/comments/abc123"}' \
   https://api.rankspot.ai/v1/forum-opportunities | jq .
 
-# Step 3: After leaving a helpful reply, mark as processed
+# Mark handled after replying
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"status": "processed"}' \
   https://api.rankspot.ai/v1/forum-opportunities/<id> | jq .
 
-# Step 4: Archive threads that aren't relevant
+# Archive
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   https://api.rankspot.ai/v1/forum-opportunities/<id>
 ```
 
+Filter by `status` (comma-separated or repeated) and `competitorId`. Status values are `new` and `processed`. Archived items are never returned. Submitting the same URL twice returns the existing record unchanged.
+
 ---
 
-## Workflow: PAA Question Mining for FAQ Sections
+### People Also Ask
 
-Use this when the user asks to:
-- "Find questions to answer in my articles"
-- "What are people asking about my keywords?"
-- "Add FAQ sections to improve SEO"
+Questions discovered from search results for your tracked keywords. Read and manage only, no create.
 
 ```bash
-# Step 1: Get unprocessed PAA questions
+# The worklist
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/people-also-ask?status=new&limit=100" | jq '.data.items[] | .question'
+  "https://api.rankspot.ai/v1/people-also-ask?status=new&limit=50" | jq '.data.items[] | .question'
 
-# Step 2: Use the questions as FAQ entries in your article or topic
-# (these are real search queries — answer them in your content)
-
-# Step 3: Mark questions as processed after incorporating them
+# Mark handled once the question is answered in your content
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"status": "processed"}' \
   https://api.rankspot.ai/v1/people-also-ask/<id> | jq .
+
+# Archive
+curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/people-also-ask/<id>
 ```
+
+Fields: `id`, `question`, `status` (`new` or `processed`), `articleId` (the article that answers it, once one exists), `createdAt`, `updatedAt`.
+
+---
+
+### Categories
+
+```bash
+# Create. A colour is assigned automatically.
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "SEO Guides"}' \
+  https://api.rankspot.ai/v1/categories | jq .
+
+# List
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/categories | jq '.data.items[]'
+
+# Rename
+curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Keyword Research"}' \
+  https://api.rankspot.ai/v1/categories/<id> | jq .
+
+# Delete. Actions and articles in it keep existing with categoryId set to null.
+curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/categories/<id>
+```
+
+Names must be unique within a workspace.
+
+---
+
+### Research
+
+Two live lookups against the open web. **These are the only endpoints that spend credits per call.** Neither response reports what it cost. The remaining balance is visible in the RankSpot dashboard.
+
+#### Search Google
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "best screen recording software for mac"}' \
+  https://api.rankspot.ai/v1/research/google | jq .
+
+# Ask for other blocks when you will actually read them
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "best screen recorder", "types": ["organic", "ai_overview", "people_also_ask"]}' \
+  https://api.rankspot.ai/v1/research/google | jq '.items[] | select(.type == "ai_overview") | .markdown'
+```
+
+**Response (201):**
+```json
+{
+  "query": "best screen recording software for mac",
+  "location": "United States",
+  "language": "en",
+  "items": [
+    { "type": "organic", "rank": 1, "page": 1, "domain": "screen.studio", "title": "Screen Studio", "url": "https://screen.studio", "description": "..." }
+  ]
+}
+```
+
+`items` are the blocks of the results page in page order. Read `type` first and branch on it.
+
+`types` chooses which blocks come back and defaults to `organic` and `discussions_and_forums`. Available: `organic`, `ai_overview`, `people_also_ask`, `discussions_and_forums`, `video`, `related_searches`. The others are opt-in because they are large: one `ai_overview` block often outweighs all ten organic results together, and the call costs the same either way.
+
+On `organic` blocks, `rank` is the position among the organic results, not the page-wide position, which moves whenever Google adds a block above them. Container blocks carry their entries in a nested `items` array.
+
+Always the top 10. Location and language come from the workspace, so results match what the rest of RankSpot reports.
+
+#### Fetch a page
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/blog/post"}' \
+  https://api.rankspot.ai/v1/research/fetch | jq -r .markdown
+```
+
+**Response (201):** `{ "markdown": "# ..." }` and nothing else.
+
+Two providers are tried in turn, so pages that block the first one (Reddit most notably) still come back. The call can take up to about 2 minutes when it falls through to the second provider, so give your client a generous timeout. Flat cost per fetch however many providers it took. A page nothing could read is a 503 with the charge refunded, never a 200 with an empty string.
+
+Use it to settle a specific question, not to crawl. One page, one charge.
+
+**Errors for both:** `402 ai-credits-exhausted` with a `usage` block carrying `creditsUsed`, `creditsLimit` and `creditsRemaining`. `502` when the provider fails, `503` when no provider could read the page. A failed provider call costs nothing.
 
 ---
 
 ### Search Console
 
-**Prerequisite:** The user must connect Google Search Console from the RankSpot dashboard: **Integrations → Google Search Console → Connect → select a property**. Without this, all requests return `401`.
+**Prerequisite:** the user must connect Google Search Console from the dashboard under **Integrations, then Google Search Console, then Connect, then select a property**. Without it every request here returns `401`.
 
-#### Get Search Performance Data
+These three endpoints return Google's payload directly, with no `data` envelope, and are rate limited to 100 requests per minute.
+
+#### Performance data
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "startDate": "2024-01-01",
-    "endDate": "2024-01-31",
-    "dimensions": ["query"]
-  }' \
+  -d '{"startDate": "2026-08-01", "endDate": "2026-08-31", "dimensions": ["query"]}' \
   https://api.rankspot.ai/v1/gsc/performance | jq .
 ```
 
-**Request body:**
+| Field                   | Required | Description                                                        |
+|-------------------------|----------|--------------------------------------------------------------------|
+| `startDate`             | Yes      | `YYYY-MM-DD`. Data lags by about 2 to 3 days.                       |
+| `endDate`               | Yes      | `YYYY-MM-DD`. Maximum range 16 months.                              |
+| `dimensions`            | No       | Group by. Combine up to 3. Defaults to `["query"]` when omitted.     |
+| `dimensionFilterGroups` | No       | Filters, ANDed within a group                                       |
+| `startRow`              | No       | Zero-based offset for pagination                                    |
+| `rowLimit`              | No       | 1 to 25000. Google's default of 1000 when omitted.                   |
 
-| Field                  | Required | Description                                                                 |
-|------------------------|----------|-----------------------------------------------------------------------------|
-| `startDate`            | Yes      | Start of date range (`YYYY-MM-DD`). Data is available with ~2–3 day delay. |
-| `endDate`              | Yes      | End of date range (`YYYY-MM-DD`). Maximum range: 16 months.                |
-| `dimensions`           | No       | Array of dimensions to group by. Defaults to `["query"]`. Combine up to 3. |
-| `dimensionFilterGroups`| No       | Filter groups to narrow results (see below).                                |
-| `startRow`             | No       | Zero-based row offset for pagination (default: 0).                          |
-| `rowLimit`             | No       | Max rows to return, 1–25000. Defaults to GSC API default (1000) when omitted. |
-
-**Dimension values:** `query` · `page` · `country` · `device` · `date` · `searchAppearance`
+**Dimension values:** `query`, `page`, `country`, `device`, `date`, `searchAppearance`
 
 **Response (200):**
 ```json
 {
   "siteUrl": "https://example.com/",
-  "startDate": "2024-01-01",
-  "endDate": "2024-01-31",
+  "startDate": "2026-08-01",
+  "endDate": "2026-08-31",
   "dimensions": ["query"],
   "rows": [
-    {
-      "keys": ["rankspot seo tool"],
-      "clicks": 120,
-      "impressions": 980,
-      "ctr": 12.24,
-      "position": 3.2
-    }
+    { "keys": ["rankspot seo tool"], "clicks": 120, "impressions": 980, "ctr": 12.24, "position": 3.2 }
   ]
 }
 ```
 
-`ctr` is a percentage (e.g. `12.24` = 12.24%). `position` is rounded to 1 decimal.
+`ctr` is a percentage, so `12.24` means 12.24%. `position` is rounded to 1 decimal.
 
-**Errors:**
-- `401 Google Search Console is not connected` — user needs to connect from the dashboard
-- `401 No Search Console property selected` — user connected OAuth but hasn't picked a property yet
-- `401 Failed to refresh Google Search Console token` — token was revoked; user must reconnect
-- `502` — Google Search Console API returned an error (message is forwarded)
-
-#### Check Whether a Page Is Indexed
-
-Inspects a single URL with the Google **URL Inspection API** and reports its index status. Works with the existing GSC connection — no reconnect needed.
+**Common queries:**
 
 ```bash
+# Top queries by clicks
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/blog/my-post"}' \
-  https://api.rankspot.ai/v1/gsc/inspect | jq .
-```
-
-**Request body:**
-
-| Field          | Required | Description                                                                 |
-|----------------|----------|-----------------------------------------------------------------------------|
-| `url`          | Yes      | Fully-qualified URL to inspect. Must belong to the connected property.       |
-| `languageCode` | No       | BCP-47 language code for result messages (default `en-US`).                  |
-
-**Response (200):** the raw `inspectionResult` from Google.
-```json
-{
-  "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=sc-domain:example.com&id=...",
-  "indexStatusResult": {
-    "verdict": "PASS",
-    "coverageState": "Submitted and indexed",
-    "robotsTxtState": "ALLOWED",
-    "indexingState": "INDEXING_ALLOWED",
-    "lastCrawlTime": "2026-06-21T15:58:20Z",
-    "pageFetchState": "SUCCESSFUL",
-    "googleCanonical": "https://www.example.com/blog",
-    "userCanonical": "https://www.example.com/blog",
-    "referringUrls": ["https://www.example.com/blog/"],
-    "crawledAs": "MOBILE"
-  },
-  "mobileUsabilityResult": { "verdict": "VERDICT_UNSPECIFIED" }
-}
-```
-
-**Reading the result:** the page is indexed when `indexStatusResult.verdict` is `PASS`. When it is not, `indexStatusResult.coverageState` explains why (e.g. `"Crawled - currently not indexed"`, `"Discovered - currently not indexed"`, `"URL is unknown to Google"`).
-
-```bash
-# Just the bottom line — is this URL indexed?
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/blog/my-post"}' \
-  https://api.rankspot.ai/v1/gsc/inspect \
-  | jq '{indexed: (.indexStatusResult.verdict == "PASS"), state: .indexStatusResult.coverageState, lastCrawl: .indexStatusResult.lastCrawlTime}'
-```
-
-**Quota:** Google limits the URL Inspection API to ~2,000 queries/day and 600 queries/minute per property.
-
-#### Submit a Page for Indexing
-
-Notifies Google via the **Indexing API** that a URL was added/updated or removed.
-
-```bash
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/blog/my-post", "type": "URL_UPDATED"}' \
-  https://api.rankspot.ai/v1/gsc/index | jq .
-```
-
-**Request body:**
-
-| Field  | Required | Description                                                                          |
-|--------|----------|--------------------------------------------------------------------------------------|
-| `url`  | Yes      | Fully-qualified URL to notify Google about. Must belong to a property you **own**.    |
-| `type` | No       | `URL_UPDATED` (default) to (re)index, or `URL_DELETED` to request removal.            |
-
-**Response (201):** the raw `urlNotificationMetadata` from Google. On a first submission this may be just `{ "url": "..." }`; `latestUpdate`/`latestRemove` only appear once Google has processed prior notifications for the URL.
-```json
-{
-  "url": "https://example.com/blog/my-post",
-  "latestUpdate": {
-    "url": "https://example.com/blog/my-post",
-    "type": "URL_UPDATED",
-    "notifyTime": "2026-06-21T12:00:00Z"
-  }
-}
-```
-
-**Important caveats:**
-- Requires a GSC connection with the **indexing** OAuth scope, and the connected Google account must be a **verified owner** of the property. If the connection predates indexing support, the user must reconnect from **Integrations → Google Search Console** to grant the scope (returns `401` otherwise).
-- A `201` means Google *received* the notification — it does **not** guarantee or immediately confirm indexing. Use `POST /gsc/inspect` afterwards to check status.
-- Google's Indexing API has a default quota of ~200 URLs/day per project.
-
-```bash
-# Submit a page, then check its status
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/blog/my-post"}' \
-  https://api.rankspot.ai/v1/gsc/index | jq .
-
-# Give Google a moment, then inspect (re-run until verdict is PASS)
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/blog/my-post"}' \
-  https://api.rankspot.ai/v1/gsc/inspect | jq '.indexStatusResult.coverageState'
-```
-
-#### Common Queries
-
-```bash
-# Top search queries — what brings people to your site
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query"], "rowLimit": 50}' \
+  -d '{"startDate": "2026-08-01", "endDate": "2026-08-31", "dimensions": ["query"], "rowLimit": 50}' \
   https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)[:10]'
 
-# Top landing pages by clicks
+# Trend over time
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["page"]}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)[:10]'
-
-# Performance by date — track trends over time
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["date"]}' \
+  -d '{"startDate": "2026-08-01", "endDate": "2026-08-31", "dimensions": ["date"]}' \
   https://api.rankspot.ai/v1/gsc/performance | jq '.rows[] | {date: .keys[0], clicks, impressions, ctr, position}'
 
-# Query + page combined — see which pages rank for which queries
+# Quick wins: high impressions, low CTR, already on page one
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query", "page"], "rowLimit": 100}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.rows[] | {query: .keys[0], page: .keys[1], clicks, position}'
+  -d '{"startDate": "2026-08-01", "endDate": "2026-08-31", "dimensions": ["query"], "rowLimit": 500}' \
+  https://api.rankspot.ai/v1/gsc/performance | \
+  jq '[.rows[] | select(.impressions > 100 and .ctr < 3 and .position < 10)] | sort_by(-.impressions)[:10]'
 
-# Filter by country — UK traffic only
+# What one page ranks for
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "startDate": "2024-01-01",
-    "endDate": "2024-01-31",
+    "startDate": "2026-08-01",
+    "endDate": "2026-08-31",
     "dimensions": ["query"],
     "dimensionFilterGroups": [
-      { "filters": [{ "dimension": "country", "expression": "gbr" }] }
+      { "filters": [{ "dimension": "page", "expression": "https://example.com/blog/seo-guide" }] }
     ]
   }' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)[:20]'
+  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)'
 
-# Queries containing a keyword — brand vs non-brand
+# Brand vs non-brand
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "startDate": "2024-01-01",
-    "endDate": "2024-01-31",
+    "startDate": "2026-08-01",
+    "endDate": "2026-08-31",
     "dimensions": ["query"],
     "dimensionFilterGroups": [
       { "filters": [{ "dimension": "query", "expression": "rankspot", "operator": "contains" }] }
@@ -1114,123 +1048,298 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   https://api.rankspot.ai/v1/gsc/performance | jq '.rows'
 ```
 
-**Filter `operator` values:** `equals` (default) · `notEquals` · `contains` · `notContains` · `includingRegex` · `excludingRegex`
+Filter `operator` values: `equals` (default), `notEquals`, `contains`, `notContains`, `includingRegex`, `excludingRegex`.
 
-**Country codes** use ISO 3166-1 alpha-3 (e.g. `usa`, `gbr`, `deu`, `fra`, `ind`). **Device values:** `DESKTOP`, `MOBILE`, `TABLET`.
+Country codes are ISO 3166-1 alpha-3 (`usa`, `gbr`, `deu`, `fra`, `ind`), not alpha-2. Device values are `DESKTOP`, `MOBILE`, `TABLET`.
+
+#### Check whether a page is indexed
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/blog/my-post"}' \
+  https://api.rankspot.ai/v1/gsc/inspect \
+  | jq '{indexed: (.indexStatusResult.verdict == "PASS"), state: .indexStatusResult.coverageState, lastCrawl: .indexStatusResult.lastCrawlTime}'
+```
+
+Takes `url` (required, must belong to the connected property) and `languageCode` (optional, default `en-US`). Returns Google's raw `inspectionResult`.
+
+The page is indexed when `indexStatusResult.verdict` is `PASS`. When it is not, `indexStatusResult.coverageState` says why.
+
+Google limits this API to roughly 2,000 queries per day and 600 per minute per property.
+
+For a whole-site view, `GET /articles?status=published&indexed=false` answers the same question from RankSpot's weekly index sweep without spending an inspection quota.
+
+#### Submit a page for indexing
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/blog/my-post", "type": "URL_UPDATED"}' \
+  https://api.rankspot.ai/v1/gsc/index | jq .
+```
+
+Takes `url` (required) and `type` (`URL_UPDATED` by default, or `URL_DELETED` to request removal). Returns Google's raw `urlNotificationMetadata`.
+
+- Needs a connection with the **indexing** OAuth scope and a Google account that is a **verified owner** of the property. A connection predating indexing support returns `401` until the user reconnects from the dashboard.
+- A `201` means Google received the notification. It does not confirm indexing. Check with `/gsc/inspect` afterwards.
+- Google's default quota is about 200 URLs per day per project.
+
+**Search Console errors:**
+- `401 Google Search Console is not connected`
+- `401 No Search Console property selected`
+- `401 Failed to refresh Google Search Console token`, meaning the token was revoked and the user must reconnect
+- `502` when Google's API itself failed, with its message forwarded
 
 ---
 
-## Workflow: Search Performance Analysis
+## Workflow: Find Where AI Engines Ignore You
 
-Use this when the user asks to:
-- "What are my top search queries?"
-- "Which pages get the most clicks from Google?"
-- "How has my search traffic changed over the last month?"
-- "Show me my click-through rate and average position"
-- "What queries is this page ranking for?"
-- "Compare my mobile vs desktop search performance"
-
-**Requires:** Google Search Console connected from **Integrations → Google Search Console** in the RankSpot dashboard.
+Use this when the user asks:
+- "Does ChatGPT mention us?"
+- "Why do we never show up in AI answers?"
+- "Who is winning in AI search in our category?"
 
 ```bash
-# Step 1: Check overall performance for a date range
+# Step 1: Score the last full month
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | \
+  jq '{visibilityScore, shareOfVoice, citationShare, categoryRank, responsesCounted, platforms}'
+
+# Step 2: Compare against the previous month of equal length
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/summary?startDate=2026-07-01&endDate=2026-07-31" | \
+  jq '{visibilityScore, shareOfVoice}'
+
+# Step 3: See who is being named instead
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | \
+  jq '.leaderboard[] | {position, name, mentions, shareOfVoice, sentiment}'
+
+# Step 4: Read answers that did not name you at all
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/responses?mentioned=false&startDate=2026-08-01&endDate=2026-08-31" | \
+  jq '.data.items[] | {id, platform, promptText}'
+
+# Step 5: Open one and see which pages it trusted instead
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/ai-visibility/responses/<id> | \
+  jq '{answerMarkdown, citations: [.citations[] | {position, domain, url, isOwnDomain}]}'
+
+# Step 6: Turn the strongest pages into get_cited actions
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["date"]}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.rows[] | {date: .keys[0], clicks, impressions, ctr, position}'
+  -d '{"type": "get_cited", "title": "Get into the Zapier roundup", "shortDescription": "Cited in 6 answers, none naming us.", "citationId": "<citation-id>"}' \
+  https://api.rankspot.ai/v1/actions | jq '{id, type, status}'
+```
 
-# Step 2: Find top queries driving traffic
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query"], "rowLimit": 25}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)[:10]'
+---
 
-# Step 3: Find queries with high impressions but low CTR — quick-win opportunities
-# (ranking well but not getting clicked — title/meta description may need improving)
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["query"], "rowLimit": 500}' \
-  https://api.rankspot.ai/v1/gsc/performance | \
-  jq '[.rows[] | select(.impressions > 100 and .ctr < 3 and .position < 10)] | sort_by(-.impressions)[:10]'
+## Workflow: Fanout Gaps to Articles
 
-# Step 4: Identify which pages have the best/worst average position
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"startDate": "2024-01-01", "endDate": "2024-01-31", "dimensions": ["page"], "rowLimit": 100}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(.position)[:10]'
+Use this when the user asks:
+- "What should we write next?"
+- "What are AI engines actually searching for?"
+- "Where are our content gaps?"
 
-# Step 5: Drill into a specific page to see what queries it ranks for
+```bash
+# Step 1: The most-run searches you have no content for
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/ai-visibility/fanouts?type=new&sortBy=searches&sortOrder=desc&limit=50" | \
+  jq '.data.items[] | {id, query, searches, platforms}'
+
+# Step 2: Pull the cluster for the best one, so a single article covers every phrasing
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/ai-visibility/fanouts/<id>/cluster | jq .
+
+# Step 3: Check you have not already written this
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/articles?search=screen%20recorder%20mac" | jq '.data.items[] | {title, slug, status}'
+
+# Step 4: Plan it, carrying the whole cluster as provenance
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "startDate": "2024-01-01",
-    "endDate": "2024-01-31",
-    "dimensions": ["query"],
-    "dimensionFilterGroups": [
-      { "filters": [{ "dimension": "page", "expression": "https://example.com/blog/seo-guide" }] }
-    ]
+    "type": "write_article",
+    "title": "The Best Mac Screen Recorders in 2026",
+    "shortDescription": "Engines ran this search 41 times last month and never cited us.",
+    "description": "Comparison guide covering editing, export quality and price.",
+    "fanoutQueryIds": ["<seed-id>", "<cluster-id-1>", "<cluster-id-2>"],
+    "keywordIds": ["<keyword-id>"]
   }' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)'
+  https://api.rankspot.ai/v1/actions | jq '{id, type, status}'
+
+# Step 5: Generate, then poll
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/actions/<action-id>/generate | jq .
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/actions/<action-id> | jq '{status, articleId}'
 ```
+
+---
+
+## Workflow: Competitor Backlink Gap
+
+Use this when the user asks:
+- "Show me backlinks my competitors have that I don't"
+- "Where are my competitors getting links from?"
+
+```bash
+# Step 1: Their highest-authority links, which is your prospect list
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/backlinks?type=competitors&sortBy=domainFromRank&sortOrder=desc&limit=100" | \
+  jq '.data.items[] | {id, domainFrom, domainFromRank, dofollow, anchor, urlFrom}'
+
+# Step 2: Compare against your own profile
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/backlinks?type=mine&sortBy=domainFromRank&sortOrder=desc" | \
+  jq '.data.items[] | {domainFrom, domainFromRank, dofollow}'
+
+# Step 3: Turn a prospect into tracked work
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "earn_link", "title": "Pitch Ahrefs blog for a mention", "shortDescription": "DR 91, dofollow, links to two competitors.", "backlinkId": "<backlink-id>"}' \
+  https://api.rankspot.ai/v1/actions | jq '{id, status}'
+
+# Step 4: Close the action once outreach lands. The backlink is marked processed with it.
+curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "processed"}' \
+  https://api.rankspot.ai/v1/actions/<action-id> | jq '{status, completedAt}'
+```
+
+---
+
+## Workflow: Published but Not Indexed
+
+Use this when the user asks:
+- "Why isn't my article showing up in Google?"
+- "Which pages has Google not indexed?"
+
+```bash
+# Step 1: Published pages Google has not indexed, with its stated reason
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/articles?status=published&indexed=false&limit=100" | \
+  jq '.data.items[] | {id, title, slug, indexCoverageState, indexCheckedAt, indexRequestedAt}'
+
+# Step 2: Confirm live rather than trusting the weekly sweep
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/blog/my-post"}' \
+  https://api.rankspot.ai/v1/gsc/inspect | jq '.indexStatusResult | {verdict, coverageState, lastCrawlTime}'
+
+# Step 3: If it is simply undiscovered, ask Google to index it
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/blog/my-post"}' \
+  https://api.rankspot.ai/v1/gsc/index | jq .
+
+# Step 4: If Google crawled and declined, the page needs work. Track that.
+curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "update_article", "title": "Rewrite the thin sections of the Mac recorder guide", "additionalInstructions": "Add original benchmarks and a comparison table.", "articleId": "<article-id>"}' \
+  https://api.rankspot.ai/v1/actions | jq '{id, type}'
+```
+
+"Crawled - currently not indexed" means Google looked and declined, so submitting again will not help. "Discovered - currently not indexed" means it has not been crawled yet, which is exactly what `/gsc/index` is for.
 
 ---
 
 ## Error Handling
 
-All error responses return JSON.
+All error responses are JSON.
 
-| Status Code | Meaning                                                                                |
-|-------------|----------------------------------------------------------------------------------------|
-| 200         | Success                                                                                |
-| 201         | Created                                                                                |
-| 204         | No content (delete / unarchive)                                                        |
-| 400         | Validation error or business rule violation (check the `message` field)               |
-| 401         | Missing or invalid API key                                                             |
-| 404         | Resource not found or belongs to another workspace                                     |
-| 429         | Rate limited — use exponential backoff (wait 10s, retry; if still 429, wait 20s, 40s) |
-| 500         | Server error — retry once after 5 seconds                                              |
+| Status | Meaning                                                              |
+|--------|----------------------------------------------------------------------|
+| 200    | Success                                                              |
+| 201    | Created                                                              |
+| 204    | No content, returned by delete, archive and unarchive                |
+| 400    | Validation error or business rule violation                          |
+| 401    | Missing, invalid or expired API key, or Search Console not connected |
+| 402    | Out of AI credits, on the research endpoints only                    |
+| 404    | Not found, or belongs to another workspace                           |
+| 429    | Rate limited                                                         |
+| 502    | An upstream provider failed                                          |
+| 503    | No provider could read the page, on `/research/fetch`                |
 
-**400 error types** for competitors:
-- `competitor-limit-exceeded` — plan limit reached; inform the user and do not retry
-- `competitor-already-exists` — domain already tracked; retrieve the existing record from `GET /competitors`
+Anything you might branch on carries a `type` slug alongside the message, so match on the slug and show the sentence:
 
-**Handling 429:**
-
-```bash
-# Wait 10s, retry. If still 429, wait 20s, then 40s.
-sleep 10
+```json
+{ "type": "competitor-limit-exceeded", "message": "..." }
 ```
 
-Do not hammer the API in a loop. Space sequential requests by at least 1 second.
+| Slug                                                     | Where                                    |
+|----------------------------------------------------------|------------------------------------------|
+| `subscription-inactive`, `trial-pagination-limit`         | Guards                                   |
+| `competitor-limit-exceeded`, `competitor-already-exists`  | Competitors                              |
+| `ai-prompt-limit-exceeded`, `ai-prompt-already-exists`, `ai-prompt-text-required` | AI prompts       |
+| `ai-credits-exhausted`                                    | Research, on the 402, with a `usage` block |
+| `action-title-already-exists`, `action-slug-already-exists`, `action-reference-not-found`, `action-target-occupied`, `action-locked`, `action-in-progress`, `action-type-not-generatable` | Actions |
+| `invalid-date-range`                                      | AI visibility summary                    |
+
+**Handling 429:** wait 10 seconds and retry, then 20, then 40. Do not hammer the API in a loop. Space sequential requests by at least a second.
+
+**Write blocking:** if the subscription is neither `active` nor `trialing`, every non-GET request is rejected with `subscription-inactive`. Reads still work.
 
 ---
 
 ## Rate Limits
 
-| Endpoint group                                    | Limit             |
-|---------------------------------------------------|-------------------|
-| All endpoints (global)                            | 5,000 req / 60s per API key |
-| `POST /gsc/performance`, `/gsc/inspect`, `/gsc/index` | 100 req / 60s per API key |
+| Endpoint group                                       | Limit                        |
+|------------------------------------------------------|------------------------------|
+| Everything (global)                                  | 5,000 requests per minute per API key |
+| `POST /gsc/performance`, `/gsc/inspect`, `/gsc/index` | 100 requests per minute per API key   |
+
+Google applies its own quotas on top: roughly 2,000 URL inspections per day and about 200 indexing requests per day.
 
 ---
 
 ## Tips
 
-- **Start with `type=new` keywords.** These are the unplanned opportunities — keywords in the workspace with no content assigned yet. Always check here first before deciding what to write next.
-- **Competitor sync runs every 1–2 weeks.** After `POST /competitors`, data will not appear immediately. If the user needs it right away, direct them to contact **dan@rankspot.ai** for a manual sync.
-- **Sort by `compositeScore` first.** It blends opportunity score with AI relevance — the best single signal for which keywords to prioritise.
-- **Competitor backlinks = your link prospecting list.** Sites linking to competitors have already decided this niche is link-worthy. `type=competitors` is the default for good reason — it only shows unprocessed prospects so the list stays actionable.
-- **Mark backlinks as processed to track outreach.** After contacting a site or submitting a listing, `PATCH /backlinks/<id>/update` with `{"status": "processed"}` moves it out of your prospect list into `type=processed`. Once RankSpot verifies the link points to your domain, it automatically moves to `type=mine`.
-- **Use `/cluster` before creating a topic.** Grouping semantically related keywords into one topic produces better, broader-ranking articles.
-- **Forum threads are for GEO, not just links.** Helpful participation in Reddit/Quora threads that match your customer's problems puts your brand into the conversations AI models learn from.
-- **PAA questions = free FAQ content.** Add them as structured FAQ sections in articles to capture featured snippet positions.
-- **Forum opportunities age quickly.** Process `new` items regularly — threads go stale once the discussion moves on.
-- **Archive, don't delete keywords.** Archiving preserves the data; a competitor's keywords cannot be recovered once the competitor is deleted.
-- **`contentHtml` is only in single-article responses.** The list endpoint omits it to keep payloads small — always fetch by ID to get the full content.
-- **Trial subscriptions are capped.** `offset=0` and `limit≤20` apply to non-active subscriptions. Upgrade at https://rankspot.ai if you hit these limits.
-- **GSC data has a 2–3 day delay.** `endDate` of yesterday will often return no data — use a date at least 3 days in the past.
-- **GSC `dimensions` defaults to `["query"]`.** Omit it to get query-level breakdown, or pass `["date"]` for trend analysis or `["page"]` for page-level performance.
-- **High impressions + low CTR + position < 10 = quick wins.** These queries are visible but not getting clicked — improving the page title or meta description can yield immediate traffic gains without changing rankings.
-- **Country codes are alpha-3.** `usa`, `gbr`, `deu`, `fra`, `ind` — not the more common alpha-2 (`us`, `gb`, etc.).
-- **"Is my page indexed?" = `POST /gsc/inspect`.** Read `indexStatusResult.verdict` (`PASS` = indexed) and fall back to `coverageState` for the reason when it isn't.
-- **Submitting for indexing is a request, not a guarantee.** `POST /gsc/index` returns `201` once Google receives the notification; confirm with `/gsc/inspect` afterwards rather than assuming the page is live. It needs the **indexing** OAuth scope and a **verified-owner** connection — a `401` here usually means the user must reconnect GSC from the dashboard.
+**Reading the API**
+- Lists wrap in `data`, single resources do not. `jq '.data.items[]'` for lists, `jq '.title'` for one thing.
+- Read `GET /workspace` first. Every other endpoint returns opportunities that only mean something for a particular business.
+- `startDate` and `endDate` are calendar days, `YYYY-MM-DD`. A full ISO timestamp is rejected.
+
+**AI visibility**
+- Check `responsesCounted` before quoting any score. 100% visibility across two answers is not the same claim as 100% across two hundred.
+- A `null` score means no data in the period, never zero.
+- Compare periods of equal length, or you are measuring the calendar.
+- Prompts run on a daily schedule, so a new prompt has no answers until the next run.
+- Fanout queries are content gaps in the engine's own words. Pull the cluster before planning, so one article answers every phrasing.
+- Archiving a citation or a query is a statement about your workflow. It never changes the reporting.
+
+**Actions**
+- Everything is an action, and the type decides what else the body needs. Only `write_article` generates.
+- `shortDescription` is usually the only text anyone reads. Lead with the evidence and the numbers.
+- Closing an action marks the citation or backlink behind it handled. Reopening puts it back. Use this instead of touching both sides by hand.
+- Content is editable only while the action is `new`. Once generation starts it is locked.
+- Prefer `{"archived": true}` over `DELETE`. Archiving is reversible, deleting is not.
+
+**Keywords and content**
+- `type=new` is the default and it is the worklist. Start there.
+- Sort by `compositeScore`. It blends opportunity with AI relevance and is the best single signal.
+- Use `/cluster` before planning an article so the piece covers a broader semantic range.
+- Search `GET /articles?search=` before planning a new one, so you do not write the same piece twice.
+- `contentHtml` is only in single-article responses. Fetch by ID for the full content.
+- For "when was this last refreshed" use `lastPublishedAt`, not `updatedAt`. For the publication date use `firstPublishedAt`.
+
+**Competitors and links**
+- Check `scope=discovered` before adding a competitor by hand. RankSpot may already have found them, and discovered brands cost nothing against your plan limit.
+- Competitor sync runs every 1 to 2 weeks. Data does not appear immediately. For a manual sync, point the user at **dan@rankspot.ai**.
+- Competitor backlinks are your warmest prospects. Those sites already decided the niche is link-worthy.
+- Forum threads matter for AI visibility, not just links, and they age quickly. Work the `new` list regularly.
+
+**Research and Search Console**
+- Research costs credits per call. Spend one when the answer changes what you do, such as who already ranks before you propose an article. Do not spend one confirming something the other endpoints already told you, and never crawl a site page by page.
+- On `/research/google`, leave `types` alone unless you will read the extra blocks. `ai_overview` and `people_also_ask` dwarf the organic results.
+- Search Console data lags 2 to 3 days. An `endDate` of yesterday often returns nothing.
+- `dimensions` defaults to `["query"]`. Pass `["date"]` for trends or `["page"]` for page-level performance.
+- To act on a GSC row, feed its page URL into `GET /articles?slug=` (last path segment) to get the article, then plan an `update_article` action against it.
+- High impressions plus low CTR plus position under 10 is a quick win. The page is visible but not clicked, so the title or meta description is the fix.
+- Country codes are alpha-3 (`usa`, `gbr`), not alpha-2.
+- For a whole-site index view use `GET /articles?status=published&indexed=false`. Save `/gsc/inspect` for confirming one page.
+- Submitting for indexing is a request, not a guarantee. Confirm with `/gsc/inspect` afterwards.
+
+**Limits**
+- Trial and inactive subscriptions are capped at `offset=0` and `limit<=20`, and inactive ones are read-only. Upgrade at https://rankspot.ai.
