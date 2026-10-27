@@ -1,6 +1,6 @@
 # RankSpot SEO Skill
 
-Programmatic SEO and AI visibility for agents. See how ChatGPT, Perplexity and Google answer questions about your brand, track competitors, score keywords, analyse backlinks, find forum threads worth joining, mine "People Also Ask" questions, plan work as actions, and generate articles, all through the RankSpot API.
+Programmatic SEO and AI visibility for agents. See how ChatGPT, Perplexity and Google answer questions about your brand, track competitors, score keywords, analyse backlinks, mine "People Also Ask" questions, plan work as actions, and generate articles, all through the RankSpot API.
 
 ## Install
 
@@ -8,10 +8,15 @@ Programmatic SEO and AI visibility for agents. See how ChatGPT, Perplexity and G
 npx skills add RankSpotAI/rankspot-skill --skill rankspot
 ```
 
-Then set your API key (get it from **Settings, then API Keys** in the [RankSpot dashboard](https://rankspot.ai)):
+Then set your API key (get it from **Account settings, then API Keys** in the [RankSpot dashboard](https://rankspot.ai)) and the workspace to work on:
 
 ```bash
 export RANKSPOT_API_KEY=your_key_here
+
+# A key acts as you and reaches every workspace you belong to; pick one
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/workspaces | jq '.[] | {id, name, organization: .organization.name}'
+export RANKSPOT_WORKSPACE_ID=the_id_you_picked
 ```
 
 No other dependencies. The skill uses `curl` and `jq`.
@@ -25,9 +30,8 @@ No other dependencies. The skill uses `curl` and `jq`.
 | **Actions**             | Every piece of planned work, typed. `write_article` actions generate articles.       |
 | **Articles**            | AI-generated articles with full HTML, publish dates and index status                 |
 | **Keywords**            | Track, score, filter and semantically cluster keywords                               |
-| **Backlinks**           | Competitor and own backlinks with domain rank, spam score and outreach status        |
+| **Backlinks**           | Referring domains with how many competitors each links to, every link and status     |
 | **Competitors**         | Brands you track, plus brands RankSpot discovered in AI answers                      |
-| **Forum Opportunities** | Reddit and Quora threads worth joining for AI visibility                             |
 | **People Also Ask**     | PAA questions mined from search results for your keywords                            |
 | **Categories**          | Group actions and articles                                                           |
 | **Research**            | Live Google search and page fetch. Costs credits per call.                           |
@@ -38,57 +42,53 @@ No other dependencies. The skill uses `curl` and `jq`.
 ```bash
 # Read the workspace: brand, domain, what the business does
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/workspace | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID | jq .
 
 # Score AI visibility over a period (both dates required)
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | jq .
 
 # Pages the AI engines cited, most cited first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/citations?type=new" | jq '.data.items[]'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/citations?type=new" | jq '.data.items[]'
 
 # Searches the engines ran while answering: content gaps in their own words
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/fanouts?type=new" | jq '.data.items[]'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/fanouts?type=new" | jq '.data.items[]'
 
 # Add a competitor, or promote one RankSpot already discovered
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "Ahrefs", "domain": "ahrefs.com"}' \
-  https://api.rankspot.ai/v1/competitors | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/competitors | jq .
 
 # Keywords with no content planned yet, best score first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?type=new&sortBy=compositeScore&sortOrder=desc" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords?type=new&sortBy=compositeScore&sortOrder=desc" | jq .
 
 # Semantically related keywords for clustering
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/keywords/<id>/cluster | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords/<id>/cluster | jq .
 
-# Competitor backlinks by domain authority
+# Your link gap, domains linking to the most competitors first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=competitors&sortBy=domainFromRank&sortOrder=desc" | jq .
-
-# Forum threads to engage with
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/forum-opportunities?status=new" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks?type=competitors" | jq .
 
 # People Also Ask questions
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/people-also-ask?status=new" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/people-also-ask?status=new" | jq .
 
 # Plan an article, then generate it
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"type": "write_article", "title": "How to Do Keyword Research", "keywordIds": ["<id1>", "<id2>"]}' \
-  https://api.rankspot.ai/v1/actions | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions | jq .
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/actions/<action-id>/generate | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<action-id>/generate | jq .
 
 # Get a generated article with full HTML
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/articles/<id> | jq -r .contentHtml
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/articles/<id> | jq -r .contentHtml
 ```
 
 ## AI Visibility
@@ -137,19 +137,19 @@ RankSpot enriches each keyword with several signals. Sort by the one that fits y
 ```bash
 # Competitor backlinks filtered to a specific domain
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=competitors&domainFrom=producthunt" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks?type=competitors&domainFrom=producthunt" | jq .
 
 # Your own backlinks
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=mine" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks?type=mine" | jq .
 ```
 
-Each backlink includes `domainFromRank`, `dofollow`, `backlinkSpamScore`, `anchor` and `firstSeen`.
+Each row is a referring domain with `domainFromRank`, `competitorCount`, `linksToYou`, `firstSeen` and `links[]`: one link per target (`competitor: null` is you) with `urlFrom`, `anchor`, `dofollow` and `backlinkSpamScore`.
 
 ## API Reference
 
-- Base URL: `https://api.rankspot.ai/v1`
-- MCP server: `https://api.rankspot.ai/mcp`
+- Base URL: `https://api.rankspot.ai/v1/workspaces/{workspaceId}`; list workspaces with `GET /v1/workspaces`
+- MCP server: `https://api.rankspot.ai/mcp` (tools take a `workspace_id`; `rankspot_list_workspaces` finds it)
 - Interactive docs: `https://api.rankspot.ai/docs`
 - Auth: `Authorization: Bearer <api-key>`
 - Pagination: `?offset=0&limit=20` (max 100)
@@ -157,4 +157,4 @@ Each backlink includes `domainFromRank`, `dofollow`, `backlinkSpamScore`, `ancho
 
 ## Get an API Key
 
-Sign up at [rankspot.ai](https://rankspot.ai). Your API key is in **Settings, then API Keys** after signup.
+Sign up at [rankspot.ai](https://rankspot.ai). Create an API key in **Account settings, then API Keys** after signup. It acts as you and reaches every workspace you belong to, including organizations that invited you.

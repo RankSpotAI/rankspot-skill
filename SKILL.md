@@ -1,6 +1,6 @@
 ---
 name: rankspot
-description: RankSpot is an SEO and AI visibility platform. Use this skill when the user wants to see how AI answer engines describe their brand, track prompts and read the answers ChatGPT, Perplexity and Google gave, work through cited pages and fanout queries, research competitors, discover and score keywords, analyse backlinks, find forum opportunities, mine "People Also Ask" questions, plan and track SEO work as actions, generate and manage articles, run live Google searches or page fetches, or analyse Google Search Console performance and indexing via the RankSpot API.
+description: RankSpot is an SEO and AI visibility platform. Use this skill when the user wants to see how AI answer engines describe their brand, track prompts and read the answers ChatGPT, Perplexity and Google gave, work through cited pages and fanout queries, research competitors, discover and score keywords, analyse backlinks, mine "People Also Ask" questions, plan and track SEO work as actions, generate and manage articles, run live Google searches or page fetches, or analyse Google Search Console performance and indexing via the RankSpot API.
 homepage: https://rankspot.ai
 metadata: {"clawdbot":{"emoji":"📈","requires":{"env":["RANKSPOT_API_KEY"]}}}
 ---
@@ -10,19 +10,20 @@ metadata: {"clawdbot":{"emoji":"📈","requires":{"env":["RANKSPOT_API_KEY"]}}}
 Before running any commands, explain the following to the user:
 
 **What RankSpot does:**
-RankSpot is an SEO and AI visibility platform that gives you programmatic access to your workspace. Through its API you can see how AI answer engines talk about your brand (tracked prompts, captured answers, cited pages, the searches engines ran), track competitors and their keywords and backlinks, score your keyword list, surface forum threads worth joining, mine "People Also Ask" questions, plan every piece of work as an action, generate and manage articles, run live Google searches and page fetches, and pull Google Search Console performance and index status.
+RankSpot is an SEO and AI visibility platform that gives you programmatic access to your workspaces. Through its API you can see how AI answer engines talk about your brand (tracked prompts, captured answers, cited pages, the searches engines ran), track competitors and their keywords and backlinks, score your keyword list, mine "People Also Ask" questions, plan every piece of work as an action, generate and manage articles, run live Google searches and page fetches, and pull Google Search Console performance and index status.
 
 **Setup:**
-Generate an API key from **Settings, then API Keys** in the RankSpot dashboard. Each key is scoped to a single workspace.
+Generate an API key from **Account settings, then API Keys** in the RankSpot dashboard (open the menu under your avatar). A key acts as you and reaches every workspace you belong to: your own and any organization that invited you. Each request names the workspace in its path.
 
 ```bash
 export RANKSPOT_API_KEY=your_api_key_here
+export RANKSPOT_WORKSPACE_ID=the_workspace_to_work_on   # see "Choose a workspace" below
 ```
 
 No installation required. All commands use `curl` and `jq`.
 
 **Account:**
-Sign up or log in at **https://rankspot.ai**. Your API key is in Settings after signup.
+Sign up or log in at **https://rankspot.ai**. Your API key is in Account settings after signup.
 
 ---
 
@@ -30,25 +31,39 @@ Sign up or log in at **https://rankspot.ai**. Your API key is in Settings after 
 
 ```bash
 export RANKSPOT_API_KEY=your_api_key_here
+export RANKSPOT_WORKSPACE_ID=the_workspace_to_work_on
 ```
 
 | Property          | Value                                                                                                                     |
 |-------------------|---------------------------------------------------------------------------------------------------------------------------|
 | **name**          | rankspot                                                                                                                  |
-| **description**   | AI visibility, competitor tracking, keyword scoring, backlink analysis, forum opportunities, actions, AI-generated articles |
+| **description**   | AI visibility, competitor tracking, keyword scoring, backlink analysis, actions, AI-generated articles |
 | **allowed-tools** | Bash(curl:*), Bash(jq:*)                                                                                                  |
 
 ---
 
 ## API Basics
 
-Base URL: `https://api.rankspot.ai/v1`
+Base URL for everything about one workspace: `https://api.rankspot.ai/v1/workspaces/{workspaceId}`. The endpoint paths in this document (`/keywords`, `/actions`, ...) are relative to it.
 
 Every request needs `Authorization: Bearer $RANKSPOT_API_KEY`.
 
 Interactive docs: `https://api.rankspot.ai/docs`
 
-There is also an MCP server at `https://api.rankspot.ai/mcp` that exposes the same operations as tools. Use it instead of curl when the host supports MCP. Its delete tools require an explicit `confirm: true`, so check with the user before calling one.
+There is also an MCP server at `https://api.rankspot.ai/mcp` that exposes the same operations as tools. Use it instead of curl when the host supports MCP. With a personal key or connection every tool takes a required `workspace_id`; call `rankspot_list_workspaces` first to find it. Its delete tools require an explicit `confirm: true`, so check with the user before calling one.
+
+### Choose a workspace
+
+A workspace is one site or brand. List the ones your key reaches, each with the organization that owns it:
+
+```bash
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  https://api.rankspot.ai/v1/workspaces | jq '.[] | {id, name, organization: .organization.name, domain}'
+```
+
+If there is more than one, ask the user which one they mean rather than guessing, then `export RANKSPOT_WORKSPACE_ID=<id>`. When the user moves to another site, switch the id; one key covers them all.
+
+**Older keys.** A key created before personal keys reaches only the workspace it was made in. `GET /v1/workspaces` lists just that one, and it also works on the old paths without the workspace part (`https://api.rankspot.ai/v1/keywords`). A personal key on those old paths gets `400` with `workspace-required`.
 
 `GET https://api.rankspot.ai/health` needs no auth and is outside the `/v1` prefix. Use it to tell "the API is down" apart from "my key is wrong".
 
@@ -56,10 +71,10 @@ There is also an MCP server at `https://api.rankspot.ai/mcp` that exposes the sa
 
 ```bash
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/workspace | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID | jq .
 ```
 
-`Missing API key` or `Invalid API key` means the key is wrong. Ask the user to check **Settings, then API Keys**.
+`Missing API key` or `Invalid API key` means the key is wrong. Ask the user to check **Account settings, then API Keys**. `403` with "does not reach that workspace" means the key is fine but `RANKSPOT_WORKSPACE_ID` is not one of its workspaces: list them again.
 
 ### Response shapes
 
@@ -95,14 +110,13 @@ AI visibility and Search Console take calendar days as `YYYY-MM-DD` in UTC. Full
 
 | Capability              | What it is                                                                                              | Endpoints                                                                 |
 |-------------------------|---------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
-| **Workspace**           | Brand, domain, what the business does and who it sells to. Read this first.                              | `GET /workspace`                                                          |
+| **Workspace**           | Brand, domain, what the business does and who it sells to. Read this first.                              | `GET /v1/workspaces/{workspaceId}`                                        |
 | **AI Visibility**       | Tracked prompts, captured answers, cited pages, fanout queries, and a scored summary                     | `/ai-visibility/prompts`, `/responses`, `/citations`, `/fanouts`, `/summary` |
 | **Actions**             | Every piece of planned work, typed. Only `write_article` turns into an article.                          | `POST/GET/PATCH/DELETE /actions`, `POST /actions/:id/generate`             |
 | **Articles**            | AI-generated articles with full HTML, publish dates and index status                                     | `GET/PATCH/DELETE /articles`                                              |
 | **Keywords**            | Scored keyword list with semantic clustering                                                             | `POST/GET /keywords`, `GET /keywords/:id/cluster`                          |
 | **Backlinks**           | Competitor backlinks you do not have yet, plus your own link profile                                     | `GET/PATCH/DELETE /backlinks`                                             |
 | **Competitors**         | Brands you track, plus brands RankSpot discovered in AI answers                                          | `POST/GET/DELETE /competitors`                                            |
-| **Forum Opportunities** | Reddit and Quora threads worth joining for AI visibility                                                 | `POST/GET/PATCH/DELETE /forum-opportunities`                              |
 | **People Also Ask**     | PAA questions mined from search results for your keywords                                                | `GET/PATCH/DELETE /people-also-ask`                                       |
 | **Categories**          | Group actions and articles                                                                               | `POST/GET/PATCH/DELETE /categories`                                       |
 | **Research**            | Live Google search and page fetch. Costs credits per call.                                               | `POST /research/google`, `POST /research/fetch`                           |
@@ -116,7 +130,7 @@ A keyword, a cited page or a competitor backlink only means something in the con
 
 ```bash
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/workspace | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID | jq .
 ```
 
 **Response (200):**
@@ -149,21 +163,21 @@ The question this answers: when someone asks ChatGPT or Perplexity what your pro
 ```bash
 # 1. Score the period. Both dates are required.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | jq .
 
 # 2. See which pages the engines cited. These are pages you want to be on.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/citations?type=new&limit=50" | jq \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/citations?type=new&limit=50" | jq \
   '.data.items[] | {id, url, domain, citations, isOwnDomain}'
 
 # 3. See what the engines actually searched for while answering. Content gaps in their own words.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/fanouts?type=new&limit=50" | jq \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/fanouts?type=new&limit=50" | jq \
   '.data.items[] | {id, query, searches}'
 
 # 4. Pull the full cluster for a gap worth covering, so one article answers every phrasing.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/ai-visibility/fanouts/<fanout-id>/cluster | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/fanouts/<fanout-id>/cluster | jq .
 
 # 5. Turn it into work. A get_cited action for a page, a write_article action for a gap.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
@@ -174,7 +188,7 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
     "shortDescription": "Cited in 6 ChatGPT answers, and you are in none of them.",
     "citationId": "<citation-id>"
   }' \
-  https://api.rankspot.ai/v1/actions | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions | jq .
 ```
 
 Prompts are run by RankSpot on a daily schedule. Adding a prompt does not produce an answer immediately, it produces one on the next run.
@@ -186,12 +200,12 @@ Prompts are run by RankSpot on a daily schedule. Adding a prompt does not produc
 ```bash
 # 1. The worklist: keywords with no article planned and none written.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?type=new&sortBy=compositeScore&sortOrder=desc&limit=50" | jq \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords?type=new&sortBy=compositeScore&sortOrder=desc&limit=50" | jq \
   '.data.items[] | {id, keyword, compositeScore, searchVolume, competitionIndex}'
 
 # 2. Get the semantic cluster for your best seed keyword. Returns a bare array.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/keywords/<seed-id>/cluster | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords/<seed-id>/cluster | jq .
 
 # 3. Plan the work as a write_article action.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
@@ -202,19 +216,19 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
     "description": "A step-by-step guide for beginners targeting informational intent.",
     "keywordIds": ["<seed-id>", "<cluster-id-1>", "<cluster-id-2>"]
   }' \
-  https://api.rankspot.ai/v1/actions | jq '{id, type, status}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions | jq '{id, type, status}'
 
 # 4. Trigger generation. The action must be write_article with status new.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/actions/<action-id>/generate | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<action-id>/generate | jq .
 
 # 5. Poll until the action reports processed, then read articleId off it.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/actions/<action-id> | jq '{status, articleId}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<action-id> | jq '{status, articleId}'
 
 # 6. Fetch the article with full HTML.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/articles/<article-id> | jq '{title, slug, contentHtml}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/articles/<article-id> | jq '{title, slug, contentHtml}'
 ```
 
 Generation is asynchronous and takes roughly 5 to 10 minutes. Space your polls, do not loop tightly.
@@ -226,26 +240,26 @@ Generation is asynchronous and takes roughly 5 to 10 minutes. Space your polls, 
 ```bash
 # 1. See who RankSpot already found in AI answers before adding anyone by hand.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/competitors?scope=discovered&limit=20" | jq \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/competitors?scope=discovered&limit=20" | jq \
   '.data.items[] | {id, name, domain, mentionCount}'
 
 # 2. Promote one to tracked, or add a brand of your own. Same endpoint either way.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "Ahrefs", "domain": "ahrefs.com"}' \
-  https://api.rankspot.ai/v1/competitors | jq '.id'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/competitors | jq '.id'
 # Keyword and backlink discovery runs on a background sync every 1 to 2 weeks.
 # If the user needs data sooner, point them at dan@rankspot.ai.
 
 # 3. Their keywords you have no content for.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?competitorId=<id>&type=new&sortBy=compositeScore&sortOrder=desc" | jq \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords?competitorId=<id>&type=new&sortBy=compositeScore&sortOrder=desc" | jq \
   '.data.items[] | {keyword, compositeScore, searchVolume}'
 
-# 4. Their backlinks, which is your link gap.
+# 4. The domains linking to them, which is your link gap.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=competitors&competitorId=<id>&sortBy=domainFromRank&sortOrder=desc" | jq \
-  '.data.items[] | {domainFrom, domainFromRank, dofollow, anchor, urlFrom}'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks?type=competitors&competitorId=<id>" | jq \
+  '.data.items[] | {domainFrom, domainFromRank, competitorCount, pages: [.links[].urlFrom]}'
 ```
 
 ---
@@ -262,7 +276,7 @@ The list endpoints take optional `startDate` and `endDate`. Omit both and you ge
 
 ```bash
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | jq .
 ```
 
 Both dates are **required** here. A score without a period means nothing.
@@ -303,29 +317,29 @@ There is no built-in period comparison. Call it twice with two periods of equal 
 ```bash
 # List tracked prompts
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/prompts" | jq '.data.items[]'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/prompts" | jq '.data.items[]'
 
 # Archived prompts instead
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/prompts?type=archived" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/prompts?type=archived" | jq .
 
 # Track a new prompt. Max 2000 characters.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"text": "best seo tools for small business"}' \
-  https://api.rankspot.ai/v1/ai-visibility/prompts | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/prompts | jq .
 
 # Reword an existing prompt. The run history stays attached.
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"text": "best seo tools for small businesses in 2026"}' \
-  https://api.rankspot.ai/v1/ai-visibility/prompts/<id> | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/prompts/<id> | jq .
 
 # Archive (frees an allowance slot) and restore
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/ai-visibility/prompts/<id>
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/prompts/<id>
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/ai-visibility/prompts/<id>/unarchive
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/prompts/<id>/unarchive
 ```
 
 Prompts are archived, never deleted: the run history is the only source for the reporting, so removing it would rewrite past results. Resubmitting a prompt you archived restores it instead of failing.
@@ -339,20 +353,20 @@ Prompts are archived, never deleted: the run history is the only source for the 
 ```bash
 # Captured answers, newest first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/responses?startDate=2026-08-01&endDate=2026-08-31&limit=50" | jq \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/responses?startDate=2026-08-01&endDate=2026-08-31&limit=50" | jq \
   '.data.items[] | {id, platform, runDate, promptText, ownBrandMentioned, citationsCount}'
 
 # Only answers that did not name you, on two platforms
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/responses?mentioned=false&platform=chatgpt,perplexity" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/responses?mentioned=false&platform=chatgpt,perplexity" | jq .
 
 # Only answers to one tracked prompt
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/responses?promptId=<id>" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/responses?promptId=<id>" | jq .
 
 # The full answer, its citations in order, the searches it ran, every brand it named
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/ai-visibility/responses/<id> | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/responses/<id> | jq .
 ```
 
 Runs that failed or are still in flight are never returned, so an absent response is not counted as a miss.
@@ -364,24 +378,24 @@ The detail view adds `answerMarkdown`, `citations`, `fanoutQueries` and a richer
 ```bash
 # The worklist: cited pages you have not acted on, most cited first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/citations?type=new&limit=50" | jq \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/citations?type=new&limit=50" | jq \
   '.data.items[] | {id, url, domain, citations, platforms, isOwnDomain}'
 
 # Narrow to one site, over a period
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/citations?domain=reddit&startDate=2026-08-01&endDate=2026-08-31" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/citations?domain=reddit&startDate=2026-08-01&endDate=2026-08-31" | jq .
 
 # Mark one handled, or put it back on the worklist
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"status": "processed"}' \
-  https://api.rankspot.ai/v1/ai-visibility/citations/<id> | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/citations/<id> | jq .
 
 # Archive and restore
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/ai-visibility/citations/<id>
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/citations/<id>
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/ai-visibility/citations/<id>/unarchive
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/citations/<id>/unarchive
 ```
 
 | Parameter               | Values                                     | Default     |
@@ -401,22 +415,22 @@ The searches an engine ran while composing an answer. A citation tells you which
 ```bash
 # The worklist: queries with no article planned and none written
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/fanouts?type=new&limit=50" | jq \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/fanouts?type=new&limit=50" | jq \
   '.data.items[] | {id, query, searches, platforms}'
 
 # Everything about one theme
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/fanouts?query=screen%20recorder&type=all" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/fanouts?query=screen%20recorder&type=all" | jq .
 
 # The cluster: every phrasing of the same intent, seed first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/ai-visibility/fanouts/<id>/cluster | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/fanouts/<id>/cluster | jq .
 
 # Archive and restore
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/ai-visibility/fanouts/<id>
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/fanouts/<id>
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/ai-visibility/fanouts/<id>/unarchive
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/fanouts/<id>/unarchive
 ```
 
 | Parameter               | Values                                              | Default      |
@@ -469,7 +483,7 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
     "keywordIds": ["<id1>", "<id2>"],
     "fanoutQueryIds": ["<id3>", "<id4>"]
   }' \
-  https://api.rankspot.ai/v1/actions | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions | jq .
 ```
 
 | Field                    | Applies to                                    | Notes                                                         |
@@ -494,34 +508,34 @@ Only one open action per target per type. Three types share `articleId` because 
 ```bash
 # List. Archived actions are never returned.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/actions?status=new,in_progress&types=write_article,get_cited&limit=50" | jq \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions?status=new,in_progress&types=write_article,get_cited&limit=50" | jq \
   '.data.items[] | {id, type, title, status}'
 
 # Search by title or description
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/actions?search=keyword%20research" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions?search=keyword%20research" | jq .
 
 # One action, with its targets and linked keywords embedded
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/actions/<id> | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<id> | jq .
 
 # Edit the content (only while status is new)
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"title": "Keyword Research Guide 2026", "keywordIds": ["<id1>", "<id4>"]}' \
-  https://api.rankspot.ai/v1/actions/<id> | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<id> | jq .
 
 # Close it, which also marks the citation or backlink behind it handled
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"status": "processed"}' \
-  https://api.rankspot.ai/v1/actions/<id> | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<id> | jq .
 
 # Dismiss it without deciding it. Nothing is deleted.
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"archived": true}' \
-  https://api.rankspot.ai/v1/actions/<id> | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<id> | jq .
 ```
 
 **Statuses:** `new` (not started), `in_progress` (an executor is running), `processed` (finished).
@@ -536,7 +550,7 @@ Passing `keywordIds` replaces the full set of linked keywords.
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/actions/<id>/generate | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<id>/generate | jq .
 ```
 
 **Response (201):** `{ "success": true }`
@@ -547,7 +561,7 @@ The action must be `type: "write_article"` with `status: "new"`. Generation is a
 
 ```bash
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/actions/<id>
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<id>
 ```
 
 Returns `204`. Hard delete, permanent. Any generated article is preserved and only the link is removed. To take an action off the board reversibly, use `{"archived": true}` instead.
@@ -563,25 +577,25 @@ Articles come from `write_article` actions. They cannot be created directly. Con
 ```bash
 # List. contentHtml is omitted to keep payloads small.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/articles?limit=50" | jq '.data.items[] | {id, title, slug, status}'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/articles?limit=50" | jq '.data.items[] | {id, title, slug, status}'
 
 # Published pages Google has not indexed. The set worth acting on.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/articles?status=published&indexed=false" | jq \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/articles?status=published&indexed=false" | jq \
   '.data.items[] | {title, slug, indexCoverageState, indexCheckedAt}'
 
 # Go from a published URL back to its article, by the last path segment.
 # This is how a page URL from /gsc/performance becomes an articleId.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/articles?slug=how-to-start-a-blog" | jq '.data.items[0]'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/articles?slug=how-to-start-a-blog" | jq '.data.items[0]'
 
 # Check whether you already covered a subject before planning another article
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/articles?search=screen%20recording" | jq '.data.items[] | .title'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/articles?search=screen%20recording" | jq '.data.items[] | .title'
 
 # One article, with full HTML. No data envelope.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/articles/<id> | jq '{title, slug, status, contentHtml}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/articles/<id> | jq '{title, slug, status, contentHtml}'
 ```
 
 | Parameter    | Values                                                | Default |
@@ -618,11 +632,11 @@ Reading `indexCoverageState`: "Crawled - currently not indexed" means Google loo
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"title": "Keyword Research Guide 2026", "slug": "keyword-research-guide-2026", "categoryId": "<id>"}' \
-  https://api.rankspot.ai/v1/articles/<id> | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/articles/<id> | jq .
 
 # Delete. Permanent. Action and keyword links are preserved.
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/articles/<id>
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/articles/<id>
 ```
 
 Updatable: `title`, `description`, `slug` (unique per workspace), `coverImageUrl`, `categoryId`.
@@ -636,30 +650,30 @@ Updatable: `title`, `description`, `slug` (unique per workspace), `coverImageUrl
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"keywords": ["seo tools", "keyword research", "link building"]}' \
-  https://api.rankspot.ai/v1/keywords | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords | jq .
 # Response (201): { "count": 3 }
 
 # The worklist, which is the default: no article planned and none written
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?sortBy=compositeScore&sortOrder=desc&limit=50" | jq '.data.items[]'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords?sortBy=compositeScore&sortOrder=desc&limit=50" | jq '.data.items[]'
 
 # Scoped to one competitor
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?type=new&competitorId=<id>&sortBy=compositeScore&sortOrder=desc" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords?type=new&competitorId=<id>&sortBy=compositeScore&sortOrder=desc" | jq .
 
 # Substring search across everything non-archived
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/keywords?type=all&keyword=seo&sortBy=searchVolume&sortOrder=desc" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords?type=all&keyword=seo&sortBy=searchVolume&sortOrder=desc" | jq .
 
 # Archive and restore. Both return 204.
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/keywords/<id>
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords/<id>
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/keywords/<id>/unarchive
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords/<id>/unarchive
 
 # Semantic cluster. Returns a bare array, no data envelope.
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/keywords/<id>/cluster | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/keywords/<id>/cluster | jq .
 ```
 
 | Parameter      | Values                                                                     | Default          |
@@ -698,37 +712,41 @@ The cluster walks pgvector cosine similarity at threshold 0.87 and returns up to
 
 ### Backlinks
 
-Backlinks are discovered by a background sync and cannot be created through the API. The default view is your link gap: high-authority sites linking to competitors but not to you.
+Backlinks are discovered by a background sync and cannot be created through the API. Each row is one referring domain: `competitorCount` says how many of your competitors it links to, `linksToYou` whether it already links to you, and `links[]` holds every link from it, one per target, with the page (`urlFrom`), `anchor`, `dofollow` and `backlinkSpamScore`. A link with `competitor: null` points to you. The default view is your link gap, domains linking to competitors but not to you, sorted by `competitorCount` so a site that lists several competitors comes first: it already writes about your market.
 
 ```bash
-# The prospecting list, strongest linking domains first
+# The prospecting list, domains linking to the most competitors first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=competitors&sortBy=domainFromRank&sortOrder=desc" | jq \
-  '.data.items[] | {id, domainFrom, domainFromRank, dofollow, anchor, urlFrom}'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks?type=competitors" | jq \
+  '.data.items[] | {id, domainFrom, domainFromRank, competitorCount, links: [.links[] | {competitor: .competitor.domain, urlFrom, anchor, dofollow}]}'
 
-# One competitor at a time
+# Strongest domains first instead
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=competitors&competitorId=<id>&sortBy=domainFromRank&sortOrder=desc" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks?type=competitors&sortBy=domainFromRank&sortOrder=desc" | jq .
+
+# Domains linking to one competitor
+curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks?type=competitors&competitorId=<id>" | jq .
 
 # Does a specific site link to any competitor?
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=competitors&domainFrom=producthunt" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks?type=competitors&domainFrom=producthunt" | jq .
 
 # Your own profile
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=mine&sortBy=domainFromRank&sortOrder=desc" | jq .
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks?type=mine&sortBy=domainFromRank&sortOrder=desc" | jq .
 
 # Mark one handled after outreach. Note the /update suffix. Returns 204.
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"status": "processed"}' \
-  https://api.rankspot.ai/v1/backlinks/<id>/update
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks/<id>/update
 
 # Archive and restore
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/backlinks/<id>
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks/<id>
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/backlinks/<id>/unarchive
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks/<id>/unarchive
 ```
 
 | Parameter      | Values                                              | Default          |
@@ -768,22 +786,22 @@ To track outreach properly, create an `earn_link` action against the backlink. C
 ```bash
 # Brands you track (default), newest first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/competitors?scope=tracked&limit=20" | jq '.data.items[]'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/competitors?scope=tracked&limit=20" | jq '.data.items[]'
 
 # Brands RankSpot found in AI answers but is not tracking, most mentioned first
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/competitors?scope=discovered" | jq \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/competitors?scope=discovered" | jq \
   '.data.items[] | {id, name, domain, mentionCount}'
 
 # Add a brand, or promote a discovered one. Same call.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "Ahrefs", "domain": "ahrefs.com"}' \
-  https://api.rankspot.ai/v1/competitors | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/competitors | jq .
 
 # Stop tracking. Returns 204.
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/competitors/<id>
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/competitors/<id>
 ```
 
 `scope` takes `tracked` (default), `discovered` or `all`.
@@ -814,40 +832,6 @@ Deleting a competitor stops tracking it and removes it from every scope. The AI 
 
 ---
 
-### Forum Opportunities
-
-Reddit threads, Quora questions and community discussions where people are talking about the problem your product solves. These matter mostly for AI visibility: being present and useful in the conversations models learn from raises the chance they cite you. RankSpot surfaces them, and you can add your own.
-
-```bash
-# New threads to engage with
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/forum-opportunities?status=new&limit=50" | jq '.data.items[] | {id, title, url}'
-
-# New and already engaged
-curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/forum-opportunities?status=new,processed" | jq .
-
-# Add one you found yourself. Idempotent on url.
-curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"title": "What SEO tools do you actually use?", "url": "https://reddit.com/r/SEO/comments/abc123"}' \
-  https://api.rankspot.ai/v1/forum-opportunities | jq .
-
-# Mark handled after replying
-curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"status": "processed"}' \
-  https://api.rankspot.ai/v1/forum-opportunities/<id> | jq .
-
-# Archive
-curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/forum-opportunities/<id>
-```
-
-Filter by `status` (comma-separated or repeated) and `competitorId`. Status values are `new` and `processed`. Archived items are never returned. Submitting the same URL twice returns the existing record unchanged.
-
----
-
 ### People Also Ask
 
 Questions discovered from search results for your tracked keywords. Read and manage only, no create.
@@ -855,17 +839,17 @@ Questions discovered from search results for your tracked keywords. Read and man
 ```bash
 # The worklist
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/people-also-ask?status=new&limit=50" | jq '.data.items[] | .question'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/people-also-ask?status=new&limit=50" | jq '.data.items[] | .question'
 
 # Mark handled once the question is answered in your content
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"status": "processed"}' \
-  https://api.rankspot.ai/v1/people-also-ask/<id> | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/people-also-ask/<id> | jq .
 
 # Archive
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/people-also-ask/<id>
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/people-also-ask/<id>
 ```
 
 Fields: `id`, `question`, `status` (`new` or `processed`), `articleId` (the article that answers it, once one exists), `createdAt`, `updatedAt`.
@@ -879,21 +863,21 @@ Fields: `id`, `question`, `status` (`new` or `processed`), `articleId` (the arti
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "SEO Guides"}' \
-  https://api.rankspot.ai/v1/categories | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/categories | jq .
 
 # List
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/categories | jq '.data.items[]'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/categories | jq '.data.items[]'
 
 # Rename
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "Keyword Research"}' \
-  https://api.rankspot.ai/v1/categories/<id> | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/categories/<id> | jq .
 
 # Delete. Actions and articles in it keep existing with categoryId set to null.
 curl -s -X DELETE -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/categories/<id>
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/categories/<id>
 ```
 
 Names must be unique within a workspace.
@@ -910,13 +894,13 @@ Two live lookups against the open web. **These are the only endpoints that spend
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query": "best screen recording software for mac"}' \
-  https://api.rankspot.ai/v1/research/google | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/research/google | jq .
 
 # Ask for other blocks when you will actually read them
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query": "best screen recorder", "types": ["organic", "ai_overview", "people_also_ask"]}' \
-  https://api.rankspot.ai/v1/research/google | jq '.items[] | select(.type == "ai_overview") | .markdown'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/research/google | jq '.items[] | select(.type == "ai_overview") | .markdown'
 ```
 
 **Response (201):**
@@ -945,7 +929,7 @@ Always the top 10. Location and language come from the workspace, so results mat
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/blog/post"}' \
-  https://api.rankspot.ai/v1/research/fetch | jq -r .markdown
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/research/fetch | jq -r .markdown
 ```
 
 **Response (201):** `{ "markdown": "# ..." }` and nothing else.
@@ -970,7 +954,7 @@ These three endpoints return Google's payload directly, with no `data` envelope,
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2026-08-01", "endDate": "2026-08-31", "dimensions": ["query"]}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/gsc/performance | jq .
 ```
 
 | Field                   | Required | Description                                                        |
@@ -1006,19 +990,19 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2026-08-01", "endDate": "2026-08-31", "dimensions": ["query"], "rowLimit": 50}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)[:10]'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/gsc/performance | jq '.rows | sort_by(-.clicks)[:10]'
 
 # Trend over time
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2026-08-01", "endDate": "2026-08-31", "dimensions": ["date"]}' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.rows[] | {date: .keys[0], clicks, impressions, ctr, position}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/gsc/performance | jq '.rows[] | {date: .keys[0], clicks, impressions, ctr, position}'
 
 # Quick wins: high impressions, low CTR, already on page one
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"startDate": "2026-08-01", "endDate": "2026-08-31", "dimensions": ["query"], "rowLimit": 500}' \
-  https://api.rankspot.ai/v1/gsc/performance | \
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/gsc/performance | \
   jq '[.rows[] | select(.impressions > 100 and .ctr < 3 and .position < 10)] | sort_by(-.impressions)[:10]'
 
 # What one page ranks for
@@ -1032,7 +1016,7 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
       { "filters": [{ "dimension": "page", "expression": "https://example.com/blog/seo-guide" }] }
     ]
   }' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.rows | sort_by(-.clicks)'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/gsc/performance | jq '.rows | sort_by(-.clicks)'
 
 # Brand vs non-brand
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
@@ -1045,7 +1029,7 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
       { "filters": [{ "dimension": "query", "expression": "rankspot", "operator": "contains" }] }
     ]
   }' \
-  https://api.rankspot.ai/v1/gsc/performance | jq '.rows'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/gsc/performance | jq '.rows'
 ```
 
 Filter `operator` values: `equals` (default), `notEquals`, `contains`, `notContains`, `includingRegex`, `excludingRegex`.
@@ -1058,7 +1042,7 @@ Country codes are ISO 3166-1 alpha-3 (`usa`, `gbr`, `deu`, `fra`, `ind`), not al
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/blog/my-post"}' \
-  https://api.rankspot.ai/v1/gsc/inspect \
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/gsc/inspect \
   | jq '{indexed: (.indexStatusResult.verdict == "PASS"), state: .indexStatusResult.coverageState, lastCrawl: .indexStatusResult.lastCrawlTime}'
 ```
 
@@ -1076,7 +1060,7 @@ For a whole-site view, `GET /articles?status=published&indexed=false` answers th
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/blog/my-post", "type": "URL_UPDATED"}' \
-  https://api.rankspot.ai/v1/gsc/index | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/gsc/index | jq .
 ```
 
 Takes `url` (required) and `type` (`URL_UPDATED` by default, or `URL_DELETED` to request removal). Returns Google's raw `urlNotificationMetadata`.
@@ -1103,34 +1087,34 @@ Use this when the user asks:
 ```bash
 # Step 1: Score the last full month
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | \
   jq '{visibilityScore, shareOfVoice, citationShare, categoryRank, responsesCounted, platforms}'
 
 # Step 2: Compare against the previous month of equal length
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/summary?startDate=2026-07-01&endDate=2026-07-31" | \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/summary?startDate=2026-07-01&endDate=2026-07-31" | \
   jq '{visibilityScore, shareOfVoice}'
 
 # Step 3: See who is being named instead
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/summary?startDate=2026-08-01&endDate=2026-08-31" | \
   jq '.leaderboard[] | {position, name, mentions, shareOfVoice, sentiment}'
 
 # Step 4: Read answers that did not name you at all
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/responses?mentioned=false&startDate=2026-08-01&endDate=2026-08-31" | \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/responses?mentioned=false&startDate=2026-08-01&endDate=2026-08-31" | \
   jq '.data.items[] | {id, platform, promptText}'
 
 # Step 5: Open one and see which pages it trusted instead
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/ai-visibility/responses/<id> | \
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/responses/<id> | \
   jq '{answerMarkdown, citations: [.citations[] | {position, domain, url, isOwnDomain}]}'
 
 # Step 6: Turn the strongest pages into get_cited actions
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"type": "get_cited", "title": "Get into the Zapier roundup", "shortDescription": "Cited in 6 answers, none naming us.", "citationId": "<citation-id>"}' \
-  https://api.rankspot.ai/v1/actions | jq '{id, type, status}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions | jq '{id, type, status}'
 ```
 
 ---
@@ -1145,16 +1129,16 @@ Use this when the user asks:
 ```bash
 # Step 1: The most-run searches you have no content for
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/ai-visibility/fanouts?type=new&sortBy=searches&sortOrder=desc&limit=50" | \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/fanouts?type=new&sortBy=searches&sortOrder=desc&limit=50" | \
   jq '.data.items[] | {id, query, searches, platforms}'
 
 # Step 2: Pull the cluster for the best one, so a single article covers every phrasing
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/ai-visibility/fanouts/<id>/cluster | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/ai-visibility/fanouts/<id>/cluster | jq .
 
 # Step 3: Check you have not already written this
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/articles?search=screen%20recorder%20mac" | jq '.data.items[] | {title, slug, status}'
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/articles?search=screen%20recorder%20mac" | jq '.data.items[] | {title, slug, status}'
 
 # Step 4: Plan it, carrying the whole cluster as provenance
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
@@ -1167,13 +1151,13 @@ curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
     "fanoutQueryIds": ["<seed-id>", "<cluster-id-1>", "<cluster-id-2>"],
     "keywordIds": ["<keyword-id>"]
   }' \
-  https://api.rankspot.ai/v1/actions | jq '{id, type, status}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions | jq '{id, type, status}'
 
 # Step 5: Generate, then poll
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/actions/<action-id>/generate | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<action-id>/generate | jq .
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  https://api.rankspot.ai/v1/actions/<action-id> | jq '{status, articleId}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<action-id> | jq '{status, articleId}'
 ```
 
 ---
@@ -1187,25 +1171,25 @@ Use this when the user asks:
 ```bash
 # Step 1: Their highest-authority links, which is your prospect list
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=competitors&sortBy=domainFromRank&sortOrder=desc&limit=100" | \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks?type=competitors&sortBy=domainFromRank&sortOrder=desc&limit=100" | \
   jq '.data.items[] | {id, domainFrom, domainFromRank, dofollow, anchor, urlFrom}'
 
 # Step 2: Compare against your own profile
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/backlinks?type=mine&sortBy=domainFromRank&sortOrder=desc" | \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/backlinks?type=mine&sortBy=domainFromRank&sortOrder=desc" | \
   jq '.data.items[] | {domainFrom, domainFromRank, dofollow}'
 
 # Step 3: Turn a prospect into tracked work
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"type": "earn_link", "title": "Pitch Ahrefs blog for a mention", "shortDescription": "DR 91, dofollow, links to two competitors.", "backlinkId": "<backlink-id>"}' \
-  https://api.rankspot.ai/v1/actions | jq '{id, status}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions | jq '{id, status}'
 
 # Step 4: Close the action once outreach lands. The backlink is marked processed with it.
 curl -s -X PATCH -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"status": "processed"}' \
-  https://api.rankspot.ai/v1/actions/<action-id> | jq '{status, completedAt}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions/<action-id> | jq '{status, completedAt}'
 ```
 
 ---
@@ -1219,26 +1203,26 @@ Use this when the user asks:
 ```bash
 # Step 1: Published pages Google has not indexed, with its stated reason
 curl -s -H "Authorization: Bearer $RANKSPOT_API_KEY" \
-  "https://api.rankspot.ai/v1/articles?status=published&indexed=false&limit=100" | \
+  "https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/articles?status=published&indexed=false&limit=100" | \
   jq '.data.items[] | {id, title, slug, indexCoverageState, indexCheckedAt, indexRequestedAt}'
 
 # Step 2: Confirm live rather than trusting the weekly sweep
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/blog/my-post"}' \
-  https://api.rankspot.ai/v1/gsc/inspect | jq '.indexStatusResult | {verdict, coverageState, lastCrawlTime}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/gsc/inspect | jq '.indexStatusResult | {verdict, coverageState, lastCrawlTime}'
 
 # Step 3: If it is simply undiscovered, ask Google to index it
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/blog/my-post"}' \
-  https://api.rankspot.ai/v1/gsc/index | jq .
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/gsc/index | jq .
 
 # Step 4: If Google crawled and declined, the page needs work. Track that.
 curl -s -X POST -H "Authorization: Bearer $RANKSPOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"type": "update_article", "title": "Rewrite the thin sections of the Mac recorder guide", "additionalInstructions": "Add original benchmarks and a comparison table.", "articleId": "<article-id>"}' \
-  https://api.rankspot.ai/v1/actions | jq '{id, type}'
+  https://api.rankspot.ai/v1/workspaces/$RANKSPOT_WORKSPACE_ID/actions | jq '{id, type}'
 ```
 
 "Crawled - currently not indexed" means Google looked and declined, so submitting again will not help. "Discovered - currently not indexed" means it has not been crawled yet, which is exactly what `/gsc/index` is for.
@@ -1255,8 +1239,10 @@ All error responses are JSON.
 | 201    | Created                                                              |
 | 204    | No content, returned by delete, archive and unarchive                |
 | 400    | Validation error or business rule violation                          |
+| 400    | Also `workspace-required`: a personal key called a path with no workspace |
 | 401    | Missing, invalid or expired API key, or Search Console not connected |
 | 402    | Out of AI credits, on the research endpoints only                    |
+| 403    | The workspace in the path is not one this key reaches                |
 | 404    | Not found, or belongs to another workspace                           |
 | 429    | Rate limited                                                         |
 | 502    | An upstream provider failed                                          |
@@ -1270,6 +1256,7 @@ Anything you might branch on carries a `type` slug alongside the message, so mat
 
 | Slug                                                     | Where                                    |
 |----------------------------------------------------------|------------------------------------------|
+| `workspace-required`                                      | A personal key on a path with no workspace |
 | `subscription-inactive`, `trial-pagination-limit`         | Guards                                   |
 | `competitor-limit-exceeded`, `competitor-already-exists`  | Competitors                              |
 | `ai-prompt-limit-exceeded`, `ai-prompt-already-exists`, `ai-prompt-text-required` | AI prompts       |
@@ -1298,7 +1285,7 @@ Google applies its own quotas on top: roughly 2,000 URL inspections per day and 
 
 **Reading the API**
 - Lists wrap in `data`, single resources do not. `jq '.data.items[]'` for lists, `jq '.title'` for one thing.
-- Read `GET /workspace` first. Every other endpoint returns opportunities that only mean something for a particular business.
+- Pick the workspace with `GET /v1/workspaces` and ask the user when there is more than one. Then read `GET /v1/workspaces/{workspaceId}` first: every other endpoint returns opportunities that only mean something for a particular business.
 - `startDate` and `endDate` are calendar days, `YYYY-MM-DD`. A full ISO timestamp is rejected.
 
 **AI visibility**
@@ -1328,7 +1315,6 @@ Google applies its own quotas on top: roughly 2,000 URL inspections per day and 
 - Check `scope=discovered` before adding a competitor by hand. RankSpot may already have found them, and discovered brands cost nothing against your plan limit.
 - Competitor sync runs every 1 to 2 weeks. Data does not appear immediately. For a manual sync, point the user at **dan@rankspot.ai**.
 - Competitor backlinks are your warmest prospects. Those sites already decided the niche is link-worthy.
-- Forum threads matter for AI visibility, not just links, and they age quickly. Work the `new` list regularly.
 
 **Research and Search Console**
 - Research costs credits per call. Spend one when the answer changes what you do, such as who already ranks before you propose an article. Do not spend one confirming something the other endpoints already told you, and never crawl a site page by page.
